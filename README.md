@@ -14,6 +14,25 @@ Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-
 | `bing` | traduttore Bing built-in di pdf2zh_next |
 | `openai` | LLM via OpenRouter (`OPENROUTER_API_KEY`) |
 
+## Stato
+
+**Funzionante** (v0.1.0). Verificato end-to-end su un PDF reale (`ha22.pdf`,
+4.132 pagine): upload, anteprima, stima, coda, traduzione, download — sia da
+**server** sia da **CLI**. Motore `pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`.
+Test: **61 passed** (`pytest`, motore fittizio, nessuna rete).
+
+## Architettura
+
+```
+utente ─► FastAPI /api/v1 ─┬─ Documenti: upload, thumbnail, /PageLabels
+                           └─ Job ─► coda a priorità (SQLite + worker thread)
+                                        └─ pipeline.run_job
+                                             ├─ blocchi di 100 pagine
+                                             ├─ engine → pdf2zh_next (subprocess, .venv2)
+                                             └─ cache versionata (split / tradotti)
+CLI (noesis-cloner) ──────────────────────┘ stessa pipeline e stessa cache
+```
+
 ## Caratteristiche
 
 - **Frontend web**: upload drag&drop, selezione pagine (singola / intervallo /
