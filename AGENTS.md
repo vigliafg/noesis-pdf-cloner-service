@@ -35,6 +35,45 @@ Rispondere in **italiano**.
 - Segreti (es. `OPENROUTER_API_KEY`) solo da variabili d'ambiente: non scriverli
   nel codice, nei log o nei commit.
 
+## Modifiche alle funzionalità condivise con `noesis-pdf-cloner`
+
+Questo repository è la **versione server + CLI** della pipeline del progetto
+desktop **[`noesis-pdf-cloner`](https://github.com/vigliafg/noesis-pdf-cloner)**
+(repo sorgente, tipicamente in `../noesis-pdf-cloner` sulla stessa macchina).
+
+**Regola**: qualunque modifica che riguarda le **funzionalità del programma**
+(comportamento del motore/pipeline, traduzione, gestione pagine/cache, output,
+catena dei traduttori, ecc.) va **riverberata anche nelle parti di codice
+interessate del repository `noesis-pdf-cloner`**, così le due versioni restano
+allineate. Vale anche al contrario: una modifica funzionale fatta nel desktop va
+riportata qui.
+
+Procedura:
+1. Individua la controparte nella tabella qui sotto.
+2. Applica la modifica equivalente anche nell'altro repository (stile e
+   convenzioni di quel repo: PyQt6/`i18n.py`).
+3. Verifica/aggiorna i **test** in entrambi i repository.
+4. Riporta esplicitamente cosa è stato allineato e cosa no (e perché).
+
+Non serve riverberare le parti **specifiche del servizio** (API/`app/api`,
+frontend web, coda multi-processo, autosizing, ruoli API/worker, deploy):
+esistono solo qui e non hanno controparte nel desktop.
+
+### Mappa delle parti condivise
+
+| `noesis-pdf-cloner-service` | `noesis-pdf-cloner` (desktop) | Cosa tenere allineato |
+|---|---|---|
+| `app/engine.py` | `clone_engine.py` | flag `pdf2zh_next`, split, `doc_key`, schema/percorsi cache, cancel, auto-rilevamento binario |
+| `app/gtranslate_cli.py` | `gtranslate_cli.py` | catena gratuita (endpoint, fallback Microsoft/LLM, log eventi) |
+| `app/models.py` (`ENGINES`, `LANGUAGES`) | `i18n.py` (`TRANSLATION_ENGINES`, `TRANSLATION_LANGUAGES`) | elenco motori e lingue |
+| `app/pages.py` | logica pagine/selezione del desktop | semantica intervalli e convenzione 0-based/1-based |
+| `app/pagelabels.py` | gestione etichette/numerazione pagina | doppia numerazione |
+| `app/pipeline.py` | flusso export di `main.py` | ordine pagine, blocchi, PDF unito / pagine singole |
+| `app/cli.py` | — (equivalente funzionale all'export) | semantica di output e nomi file |
+
+In caso di dubbio su cosa sia "funzionalità" e cosa sia "solo server",
+chiedere conferma prima di propagare.
+
 ## Documentazione
 - `README.md` — uso e API.
 - `ARCHITETTURA.md` — scelte architetturali (implementate e future), ADR, roadmap.
