@@ -431,11 +431,13 @@ function createTile(job) {
   badge.className = "badge idle";
   const info = document.createElement("div");
   info.className = "tile-info";
+  const chip = document.createElement("span");
+  chip.className = "range-chip";
   const name = document.createElement("div");
   name.className = "tile-name";
   const meta = document.createElement("div");
   meta.className = "tile-meta";
-  info.append(name, meta);
+  info.append(chip, name, meta);
   const dl = document.createElement("a");
   dl.className = "dl hidden";
   dl.href = `${API}/jobs/${job.job_id}/download`;
@@ -443,23 +445,16 @@ function createTile(job) {
   dl.addEventListener("click", (e) => e.stopPropagation());
   const liquid = document.createElement("div");
   liquid.className = "liquid";
-  const actions = document.createElement("div");
-  actions.className = "tile-actions";
-  const more = document.createElement("button");
-  more.type = "button";
-  more.title = "Dettagli";
-  more.textContent = "⋯";
-  actions.append(more);
 
   cover.append(paper, img, scrim, badge, info, dl);
-  el.append(cover, liquid, actions);
+  el.append(cover, liquid);
 
   const open = () => openDrawer(job.job_id);
   el.addEventListener("click", open);
   el.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
   });
-  return { el, cover, badge, name, meta, dl };
+  return { el, cover, badge, name, meta, dl, chip };
 }
 
 function updateTile(tile, job) {
@@ -469,6 +464,9 @@ function updateTile(tile, job) {
   tile.badge.className = `badge ${job.state}`;
   tile.name.textContent = job.output_name || "(senza nome)";
   tile.meta.textContent = tileMeta(job);
+  const range = rangeChipText(job);
+  tile.chip.textContent = range.text;
+  tile.chip.title = range.title;
   tile.dl.classList.toggle("hidden", job.state !== "done");
   tile.el.style.setProperty("--p", job.state === "running" ? progressPct(job) : 0);
   tile.el.dataset.search = `${job.output_name} ${job.state} ${engineLabel(job.engine)} ${job.dst_lang}`.toLowerCase();
@@ -487,6 +485,26 @@ function tileMeta(job) {
     return `${base} · ${job.pages_total}/${job.pages_total}`;
   }
   return `${base} · ${job.pages_done}/${job.pages_total}`;
+}
+
+function rangeChipText(job) {
+  const total = job.pages_total || 0;
+  const first = job.page_first;
+  const last = job.page_last;
+  if (first == null) return { text: "—", title: "" };
+  if (total === 1 || first === last) {
+    return { text: `p. ${first}`, title: `pagina ${first}` };
+  }
+  if (!job.pages_contiguous) {
+    return {
+      text: `${total} pagine`,
+      title: `${total} pagine sparse, da p. ${first} a p. ${last}`,
+    };
+  }
+  return {
+    text: `p. ${first}–${last} · ${total}`,
+    title: `pagine ${first}–${last} (${total})`,
+  };
 }
 
 async function refreshGrid() {
@@ -580,10 +598,63 @@ async function openDrawer(jobId) {
   state.drawer.id = jobId;
   $("drawer").classList.add("open");
   $("drawer-log").textContent = "";
-  const job = await fetchJob(jobId);
-  if (job) renderDrawer(job);
+  $("drawer-pages").textContent = "";
+  $("drawer-pages-wrap").classList.add("hidden");
+  $("drawer-preview").classList.remove("failed");
+  $("drawer-cover").src = `${API}/jobs/${jobId}/cover`;
+
   openDrawerStream(jobId);
   scheduleDrawerTick();
+
+  const job = await fetchJob(jobId);
+  if (!job || state.drawer.id !== jobId) return;
+  renderDrawer(job);
+  const doc = await fetchDocument(job.doc_id);
+  if (state.drawer.id !== jobId) return;
+  renderDrawerPages(job, doc);
+}
+
+function renderDrawerPages(job, doc) {
+  const box = $("drawer-pages");
+  box.textContent = "";
+  const indices = job.pages || [];
+  if (!indices.length) {
+    $("drawer-pages-wrap").classList.add("hidden");
+    return;
+  }
+  const labels = new Map();
+  if (doc && Array.isArray(doc.pages)) {
+    for (const page of doc.pages) labels.set(page.index, page.label);
+  }
+  const LIMIT = 60;
+  for (const index of indices.slice(0, LIMIT)) {
+    const chip = document.createElement("span");
+    chip.className = "page-chip";
+    const physical = index + 1;
+    const label = labels.get(index);
+    chip.textContent = label && label !== String(physical)
+      ? `${physical} · «${label}»`
+      : String(physical);
+    box.append(chip);
+  }
+  if (indices.length > LIMIT) {
+    const more = document.createElement("span");
+    more.className = "page-more";
+    more.textContent = `+${indices.length - LIMIT} altre`;
+    box.append(more);
+  }
+  $("drawer-pages-wrap").classList.remove("hidden");
+}
+
+async function fetchDocument(docId) {
+  if (!docId) return null;
+  try {
+    const response = await fetch(`${API}/documents/${docId}`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
 
 function closeDrawer() {
@@ -761,6 +832,7 @@ function bind() {
   // drawer
   $("drawer-close").addEventListener("click", closeDrawer);
   $("drawer-cancel").addEventListener("click", cancelDrawerJob);
+  $("drawer-cover").addEventListener("error", () => $("drawer-preview").classList.add("failed"));
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeWizard(); closeDrawer(); }

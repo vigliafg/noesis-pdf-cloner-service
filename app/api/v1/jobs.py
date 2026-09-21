@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import os
 import uuid
 from datetime import timezone
 from pathlib import Path
@@ -13,7 +12,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from ... import audit
 from ...auth import Actor, authorize, get_current_actor
-from ...engine import CloneEngine
+from ...covers import ensure_cover
 from ...estimate import estimate_job
 from ...metrics import JOBS_SUBMITTED, METRICS
 from ...models import (
@@ -182,31 +181,49 @@ def estimate_job_route(
     )
 
 
+def _page_span(job: JobRecord) -> tuple[int | None, int | None, bool]:
+    """(prima, ultima, contiguo) delle pagine del job, 1-based.
+
+    Compatto apposta: la griglia non ha bisogno della lista ``pages`` intera.
+    """
+    pages = sorted(job.pages)
+    if not pages:
+        return None, None, True
+    contiguous = all(b - a == 1 for a, b in zip(pages, pages[1:]))
+    return pages[0] + 1, pages[-1] + 1, contiguous
+
+
 @router.get("", response_model=list[JobSummary])
 def list_jobs(request: Request, limit: int = 50, actor: Actor = Depends(get_current_actor)):
     ctx = get_ctx(request)
     jobs = ctx.storage.list_jobs(limit=max(1, min(limit, 200)))
-    return [
-        JobSummary(
-            job_id=j.job_id,
-            doc_id=j.doc_id,
-            state=j.state,
-            engine=j.engine,
-            dst_lang=j.dst_lang,
-            output_name=j.output_name,
-            pages_total=j.pages_total,
-            pages_done=j.pages_done,
-            pages_failed=j.pages_failed,
-            range_mode=j.range_mode,
-            queue_position=(
-                ctx.queue_position(j.job_id) if j.state == JobState.queued else None
-            ),
-            scheduled_at=j.scheduled_at,
-            duration_ms=j.duration_ms,
-            created=j.created,
+    summaries: list[JobSummary] = []
+    for j in jobs:
+        page_first, page_last, contiguous = _page_span(j)
+        summaries.append(
+            JobSummary(
+                job_id=j.job_id,
+                doc_id=j.doc_id,
+                state=j.state,
+                engine=j.engine,
+                dst_lang=j.dst_lang,
+                output_name=j.output_name,
+                pages_total=j.pages_total,
+                pages_done=j.pages_done,
+                pages_failed=j.pages_failed,
+                page_first=page_first,
+                page_last=page_last,
+                pages_contiguous=contiguous,
+                range_mode=j.range_mode,
+                queue_position=(
+                    ctx.queue_position(j.job_id) if j.state == JobState.queued else None
+                ),
+                scheduled_at=j.scheduled_at,
+                duration_ms=j.duration_ms,
+                created=j.created,
+            )
         )
-        for j in jobs
-    ]
+    return summaries
 
 
 @router.get("/{job_id}", response_model=JobOut)
@@ -256,30 +273,18 @@ def download(job_id: str, request: Request, actor: Actor = Depends(get_current_a
 def job_cover(job_id: str, request: Request, actor: Actor = Depends(get_current_actor)) -> Response:
     """Copertina della tessera di storico: miniatura della prima pagina del job.
 
-    Salvata in ``artifact_dir/cover.png`` e generata in modo lazy al primo
-    accesso (se il documento sorgente esiste ancora). Sopravvive alla pulizia
-    del documento (retention job > documento).
+    Salvata in ``artifact_dir/cover.png``. Generata in modo lazy al primo
+    accesso; il worker la genera comunque a fine job, così sopravvive alla
+    pulizia del documento (retention job > documento).
     """
     ctx = get_ctx(request)
     job = ctx.storage.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job non trovato")
     authorize(actor, job.owner_id)
-    cover = ctx.storage.job_cover_path(job_id)
-    if not cover.is_file():
-        document = ctx.storage.get_document(job.doc_id)
-        if document is None:
-            raise HTTPException(status_code=404, detail="copertina non disponibile")
-        page = job.pages[0] if job.pages else 0
-        try:
-            data = CloneEngine.render_thumb(document.path, page, width=420)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=404, detail="copertina non disponibile") from exc
-        cover.parent.mkdir(parents=True, exist_ok=True)
-        tmp = cover.with_suffix(f".{uuid.uuid4().hex}.tmp")
-        with open(tmp, "wb") as handle:
-            handle.write(data)
-        os.replace(tmp, cover)
+    cover = ensure_cover(ctx.storage, job)
+    if cover is None:
+        raise HTTPException(status_code=404, detail="copertina non disponibile")
     return Response(
         content=cover.read_bytes(),
         media_type="image/png",

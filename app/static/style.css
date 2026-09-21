@@ -109,13 +109,14 @@ body {
 .tile-name { font-weight: 650; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
 
-.tile-actions { position: absolute; top: 8px; right: 8px; z-index: 4; opacity: 0; transition: opacity .15s; }
-.tile:hover .tile-actions, .tile:focus-within .tile-actions { opacity: 1; }
-.tile-actions button {
-  background: rgba(15,18,24,.8); border: 1px solid var(--line); color: var(--text);
-  border-radius: 8px; width: 28px; height: 28px; cursor: pointer; font-size: 14px;
+.range-chip {
+  display: inline-block; max-width: 100%; margin-bottom: 5px;
+  font-size: 10.5px; font-weight: 650; letter-spacing: .3px;
+  padding: 2px 8px; border-radius: 999px;
+  background: rgba(15,18,24,.72); border: 1px solid var(--line);
+  color: var(--text); backdrop-filter: blur(4px);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.tile-actions button:hover { border-color: var(--accent); }
 
 /* stati */
 .tile.st-new { background: #fff; border-color: #fff; }
@@ -290,6 +291,26 @@ body {
 }
 .drawer header b { font-size: 14px; }
 .drawer .body { padding: 16px; overflow: auto; flex: 1; }
+.drawer-preview {
+  display: flex; justify-content: center; align-items: flex-start;
+  background: #0b0e13; border: 1px solid var(--line); border-radius: 11px;
+  padding: 8px; margin-bottom: 14px; max-height: 46vh; overflow: hidden;
+}
+.drawer-preview.failed { display: none; }
+.drawer-cover {
+  max-width: 100%; max-height: 44vh; display: block; border-radius: 4px;
+  background: #f7f4ee; box-shadow: 0 6px 18px rgba(0,0,0,.5);
+}
+.section-title {
+  font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--muted); margin: 16px 0 8px; font-weight: 600;
+}
+.pages { display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow: auto; }
+.page-chip {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 7px; padding: 3px 8px; font-size: 11.5px;
+}
+.page-more { color: var(--muted); font-size: 11.5px; align-self: center; }
 .drawer .progress { height: 7px; border-radius: 99px; background: rgba(255,255,255,.1); overflow: hidden; margin: 10px 0 4px; }
 .drawer .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), #7fb3ff); transition: width .3s; }
 .drawer footer { display: flex; gap: 10px; padding: 14px 16px; border-top: 1px solid var(--line); }

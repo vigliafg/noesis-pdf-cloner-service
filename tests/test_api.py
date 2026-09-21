@@ -87,6 +87,72 @@ def test_job_cover(client):
     assert cover.headers["content-type"] == "image/png"
 
 
+def test_job_cover_written_on_completion(client, ctx):
+    """Il worker genera la copertina a fine job (non solo in modo lazy)."""
+    from app.covers import ensure_cover
+    from app.models import JobRecord
+
+    document = _upload(client, pages=4)
+    response = client.post(
+        "/api/v1/jobs",
+        json={
+            "doc_id": document["doc_id"],
+            "pages": "2-3",
+            "dst_lang": "it",
+            "engine": "google",
+            "output_name": "cover_worker",
+            "range_mode": "merged",
+        },
+    )
+    assert response.status_code == 201, response.text
+    job_id = response.json()["job_id"]
+    _poll(client, job_id)
+
+    cover = ctx.settings.artifacts_dir / job_id / "cover.png"
+    deadline = time.time() + 5
+    while time.time() < deadline and not cover.is_file():
+        time.sleep(0.05)
+    assert cover.is_file(), "il worker non ha scritto la copertina a fine job"
+    assert cover.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+    # idempotente: non riscrive un file già presente
+    mtime = cover.stat().st_mtime_ns
+    assert ensure_cover(ctx.storage, ctx.storage.get_job(job_id)) == cover
+    assert cover.stat().st_mtime_ns == mtime
+
+    # documento assente => nessuna copertina, nessuna eccezione
+    orfano = JobRecord(job_id="orfano", doc_id="inesistente", pages=[0])
+    assert ensure_cover(ctx.storage, orfano) is None
+
+
+def test_job_summary_page_span(client):
+    document = _upload(client, pages=6)
+
+    def submit(pages, name):
+        response = client.post(
+            "/api/v1/jobs",
+            json={
+                "doc_id": document["doc_id"],
+                "pages": pages,
+                "dst_lang": "it",
+                "engine": "google",
+                "output_name": name,
+                "range_mode": "merged",
+            },
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["job_id"]
+
+    contiguo = submit("2-4", "span_contiguo")
+    sparso = submit("1,3,5", "span_sparso")
+
+    summaries = {j["job_id"]: j for j in client.get("/api/v1/jobs").json()}
+    assert (summaries[contiguo]["page_first"], summaries[contiguo]["page_last"]) == (2, 4)
+    assert summaries[contiguo]["pages_contiguous"] is True
+    assert (summaries[sparso]["page_first"], summaries[sparso]["page_last"]) == (1, 5)
+    assert summaries[sparso]["pages_contiguous"] is False
+
+
 def test_job_merged_flow(client):
     document = _upload(client, pages=3)
     response = client.post(

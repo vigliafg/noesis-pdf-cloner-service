@@ -6,6 +6,7 @@ import logging
 import threading
 
 from .config import Settings
+from .covers import ensure_cover
 from .engine import CloneEngine
 from .logging_setup import JobLogger
 from .metrics import (
@@ -67,6 +68,14 @@ class JobRunner:
             METRICS.inc(JOBS_DONE)
         else:
             METRICS.inc(JOBS_FAILED)
+        if result.artifact_path:
+            # Copertina di storico: generata subito a fine job così sopravvive
+            # alla pulizia del documento (retention job > documento) anche se
+            # nessuno ha mai aperto la tessera. Accessoria: non fa fallire nulla.
+            try:
+                ensure_cover(self.storage, job)
+            except Exception:  # noqa: BLE001
+                log.warning("copertina non generata per %s", job.job_id, exc_info=True)
         log.info(
             "job %s concluso: %d ok / %d fallite",
             job.job_id, result.pages_done, result.pages_failed,

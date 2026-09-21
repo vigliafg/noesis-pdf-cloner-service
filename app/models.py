@@ -155,6 +155,10 @@ class JobSummary(BaseModel):
     pages_total: int
     pages_done: int
     pages_failed: int = 0
+    # intervallo selezionato, in numerazione 1-based (per il chip di storico)
+    page_first: int | None = None
+    page_last: int | None = None
+    pages_contiguous: bool = True
     range_mode: RangeMode = RangeMode.merged
     queue_position: int | None = None
     scheduled_at: datetime | None = None
