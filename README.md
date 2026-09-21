@@ -106,7 +106,7 @@ Endpoint: `POST/GET/DELETE /documents`, `GET /documents/{id}/thumb`,
 | `WORKERS` | `max(2, cpu)` | worker della coda |
 | `PAGE_CONCURRENCY` | `3` | pagine tradotte in parallelo per job |
 | `MAX_ENGINE_PROCS` | `4` | processi `pdf2zh_next` simultanei |
-| `MAX_UPLOAD_MB` | `200` | dimensione massima upload |
+| `MAX_UPLOAD_MB` | `500` | dimensione massima upload |
 | `MAX_QUEUE_SIZE` | `100` | job in coda prima di rispondere 429 |
 | `MAX_PAGES_PER_JOB` | `200` | pagine massime per job |
 | `JOB_RETENTION_HOURS` | `72` | retention di artefatti e log |

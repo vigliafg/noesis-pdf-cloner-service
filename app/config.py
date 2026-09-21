@@ -56,7 +56,7 @@ class Settings:
     max_pages_per_job: int = 200
 
     # ── upload / sicurezza ──────────────────────────────────────────────
-    max_upload_mb: int = 200
+    max_upload_mb: int = 500
     rate_limit_per_minute: int = 120
     rate_limit_jobs_per_hour: int = 60
 
@@ -145,7 +145,7 @@ class Settings:
             page_timeout=_env_int("PAGE_TIMEOUT", 900),
             max_queue_size=_env_int("MAX_QUEUE_SIZE", 100),
             max_pages_per_job=_env_int("MAX_PAGES_PER_JOB", 200),
-            max_upload_mb=_env_int("MAX_UPLOAD_MB", 200),
+            max_upload_mb=_env_int("MAX_UPLOAD_MB", 500),
             rate_limit_per_minute=_env_int("RATE_LIMIT_PER_MINUTE", 120),
             rate_limit_jobs_per_hour=_env_int("RATE_LIMIT_JOBS_PER_HOUR", 60),
             job_retention_hours=_env_int("JOB_RETENTION_HOURS", 72),
