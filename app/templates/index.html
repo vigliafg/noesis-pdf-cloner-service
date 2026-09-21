@@ -16,9 +16,14 @@
     <div class="toolbar">
       <h1>I miei lavori</h1>
       <div class="spacer"></div>
+      <div class="seg tilesize" id="tile-size" role="group" aria-label="Dimensione tessere">
+        <button type="button" data-size="s" title="Tessere piccole" aria-pressed="false">S</button>
+        <button type="button" data-size="m" title="Tessere medie" aria-pressed="true" class="on">M</button>
+        <button type="button" data-size="l" title="Tessere grandi" aria-pressed="false">L</button>
+      </div>
       <input class="search" id="search" type="search" placeholder="Cerca per nome, lingua, stato…">
     </div>
-    <section class="grid" id="grid" data-progress="liquid" aria-live="polite"></section>
+    <section class="grid" id="grid" data-progress="liquid" data-tile="m" aria-live="polite"></section>
     <p class="empty hidden" id="empty">Nessun lavoro ancora. Clicca <strong>＋</strong> per iniziare.</p>
   </div>
 
@@ -128,12 +133,14 @@
       <div class="drawer-preview" id="drawer-preview">
         <img id="drawer-cover" class="drawer-cover" alt="">
       </div>
+      <div class="preview-caption" id="drawer-page-label"></div>
       <div class="tile-meta" id="drawer-meta"></div>
       <div class="progress"><i id="drawer-fill"></i></div>
       <div class="tile-meta" id="drawer-eta"></div>
       <div class="hidden" id="drawer-pages-wrap">
-        <div class="section-title">Pagine tradotte <span class="hint-inline">— clicca per vederle</span></div>
-        <div class="pages" id="drawer-pages"></div>
+        <div class="section-title">Pagine tradotte <span class="hint-inline" id="drawer-pages-count"></span></div>
+        <div class="page-strip" id="drawer-strip"></div>
+        <button class="btn ghost small hidden" id="drawer-showall"></button>
       </div>
       <pre class="log" id="drawer-log" aria-live="polite"></pre>
       <p class="note">Il job continua anche se chiudi il browser: lo ritrovi qui al rientro.</p>

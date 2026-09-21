@@ -134,7 +134,7 @@ def get_thumbnail(
     authorize(actor, document.owner_id)
     if page < 0 or page >= document.page_count:
         raise HTTPException(status_code=400, detail="pagina fuori intervallo")
-    width = max(40, min(int(w), 800))
+    width = max(40, min(int(w), 1200))
     thumb = ctx.storage.thumb_path(document.sha256, page, width)
     if not thumb.is_file():
         try:

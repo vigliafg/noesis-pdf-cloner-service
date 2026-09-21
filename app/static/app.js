@@ -22,7 +22,10 @@ const state = {
   orderKey: "",
   gridTimer: null,
   gridBusy: false,
-  drawer: { id: null, docId: null, timer: null, source: null },
+  drawer: {
+    id: null, docId: null, timer: null, source: null,
+    pages: [], labels: new Map(), thumbs: new Map(), docAvailable: false,
+  },
   wizard: { step: 0, rangeMode: "merged", startMode: "now" },
   search: "",
 };
@@ -52,6 +55,31 @@ function saveJobIds(ids) {
 
 function addJobId(jobId) {
   saveJobIds([jobId, ...loadJobIds().filter((id) => id !== jobId)]);
+}
+
+/* ── dimensione delle tessere (localStorage) ───────────────────────────── */
+
+const TILE_SIZE_KEY = "noesis_tile_size";
+const TILE_SIZES = ["s", "m", "l"];
+
+function loadTileSize() {
+  try {
+    const value = localStorage.getItem(TILE_SIZE_KEY);
+    return TILE_SIZES.includes(value) ? value : "m";
+  } catch { return "m"; }
+}
+
+function applyTileSize(size) {
+  $("grid").dataset.tile = size;
+  document.querySelectorAll("#tile-size button").forEach((btn) => {
+    const on = btn.dataset.size === size;
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-pressed", String(on));
+  });
+}
+
+function saveTileSize(size) {
+  try { localStorage.setItem(TILE_SIZE_KEY, size); } catch { /* storage non disponibile */ }
 }
 
 /* ── utilità ───────────────────────────────────────────────────────────── */
@@ -597,11 +625,16 @@ async function gridTick() {
 async function openDrawer(jobId) {
   state.drawer.id = jobId;
   state.drawer.docId = null;
-  setActivePageChip(null);
+  state.drawer.pages = [];
+  state.drawer.labels = new Map();
+  state.drawer.thumbs = new Map();
+  state.drawer.docAvailable = false;
   $("drawer").classList.add("open");
   $("drawer-log").textContent = "";
-  $("drawer-pages").textContent = "";
+  $("drawer-strip").textContent = "";
   $("drawer-pages-wrap").classList.add("hidden");
+  $("drawer-page-label").textContent = "";
+  // qualcosa da mostrare subito, finché non carica la prima pagina tradotta
   setDrawerImage(`${API}/jobs/${jobId}/cover`, null);
 
   openDrawerStream(jobId);
@@ -616,9 +649,11 @@ async function openDrawer(jobId) {
   renderDrawerPages(job, doc);
 }
 
-/* La copertina mostra la prima pagina dell'intervallo; i chip permettono di
- * scorrere le altre. Le anteprime sono pagine *originali*: il risultato
- * tradotto resta il PDF/ZIP da scaricare. */
+/* Nel drawer si sfogliano le pagine *tradotte*. Le immagini sono pagine
+ * originali: il risultato tradotto resta il PDF/ZIP da scaricare. La prima
+ * pagina del documento, invece, è la copertina e vive nella griglia. */
+
+const PAGE_STRIP_LIMIT = 60;
 
 function setDrawerImage(src, fallback, onFallback) {
   const cover = $("drawer-cover");
@@ -636,65 +671,88 @@ function setDrawerImage(src, fallback, onFallback) {
   cover.src = src;
 }
 
-function setActivePageChip(chip) {
-  document.querySelectorAll("#drawer-pages .page-chip").forEach((c) => {
-    c.classList.toggle("active", c === chip);
-  });
+function pageLabel(index) {
+  const physical = index + 1;
+  const label = state.drawer.labels.get(index);
+  return label && label !== String(physical)
+    ? `pagina ${physical} · «${label}»`
+    : `pagina ${physical}`;
 }
 
-function showDrawerPage(index, chip) {
+function setActiveThumb(thumb) {
+  for (const button of state.drawer.thumbs.values()) {
+    button.classList.toggle("active", button === thumb);
+  }
+  if (thumb) thumb.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+}
+
+function selectPage(index) {
   const docId = state.drawer.docId;
   const jobId = state.drawer.id;
-  if (!docId || !jobId) return;
-  const fallback = `${API}/jobs/${jobId}/cover`;
-  const thumb = `${API}/documents/${docId}/thumb?page=${index}&w=800`;
-  setDrawerImage(thumb, fallback, () => setActivePageChip(null));
-  setActivePageChip(chip);
+  if (!docId || !jobId || !state.drawer.pages.includes(index)) return;
+  setDrawerImage(
+    `${API}/documents/${docId}/thumb?page=${index}&w=1000`,
+    `${API}/jobs/${jobId}/cover`,
+    () => {
+      setActiveThumb(null);
+      $("drawer-page-label").textContent = "anteprima non disponibile";
+    },
+  );
+  setActiveThumb(state.drawer.thumbs.get(index) || null);
+  $("drawer-page-label").textContent = pageLabel(index);
+}
+
+function appendStripThumbs(from, to) {
+  const strip = $("drawer-strip");
+  for (const index of state.drawer.pages.slice(from, to)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "page-thumb";
+    button.title = pageLabel(index);
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.alt = "";
+    img.src = `${API}/documents/${state.drawer.docId}/thumb?page=${index}&w=180`;
+    const num = document.createElement("span");
+    num.textContent = String(index + 1);
+    button.append(img, num);
+    button.addEventListener("click", () => selectPage(index));
+    state.drawer.thumbs.set(index, button);
+    strip.append(button);
+  }
 }
 
 function renderDrawerPages(job, doc) {
-  const box = $("drawer-pages");
-  box.textContent = "";
-  const indices = job.pages || [];
-  if (!indices.length) {
+  state.drawer.pages = job.pages || [];
+  state.drawer.labels = new Map();
+  if (doc && Array.isArray(doc.pages)) {
+    for (const page of doc.pages) state.drawer.labels.set(page.index, page.label);
+  }
+  state.drawer.docAvailable = !!doc;
+  if (!state.drawer.pages.length) {
     $("drawer-pages-wrap").classList.add("hidden");
     return;
   }
-  const labels = new Map();
-  if (doc && Array.isArray(doc.pages)) {
-    for (const page of doc.pages) labels.set(page.index, page.label);
-  }
-  const available = !!doc;  // documento rimosso => niente anteprime
-  const LIMIT = 60;
-  const chips = [];
-  for (const index of indices.slice(0, LIMIT)) {
-    const physical = index + 1;
-    const label = labels.get(index);
-    let chip;
-    if (available) {
-      chip = document.createElement("button");
-      chip.type = "button";
-      chip.title = `vedi la pagina ${physical} (originale, non tradotta)`;
-      chip.addEventListener("click", () => showDrawerPage(index, chip));
-    } else {
-      chip = document.createElement("span");
-      chip.title = "anteprima non disponibile: documento originale rimosso";
-    }
-    chip.className = "page-chip" + (available ? "" : " disabled");
-    chip.textContent = label && label !== String(physical)
-      ? `${physical} · «${label}»`
-      : String(physical);
-    box.append(chip);
-    chips.push(chip);
-  }
-  if (indices.length > LIMIT) {
-    const more = document.createElement("span");
-    more.className = "page-more";
-    more.textContent = `+${indices.length - LIMIT} altre`;
-    box.append(more);
-  }
   $("drawer-pages-wrap").classList.remove("hidden");
-  setActivePageChip(chips[0] || null);
+  $("drawer-pages-count").textContent =
+    `(${state.drawer.pages.length}) · clicca per cambiare`;
+
+  if (!state.drawer.docAvailable) {
+    // documento rimosso: niente anteprime, resta la copertina
+    $("drawer-page-label").textContent =
+      "anteprime non disponibili: documento originale rimosso";
+    return;
+  }
+
+  appendStripThumbs(0, PAGE_STRIP_LIMIT);
+  const showAll = $("drawer-showall");
+  if (state.drawer.pages.length > PAGE_STRIP_LIMIT) {
+    showAll.textContent = `mostra tutte le ${state.drawer.pages.length} pagine`;
+    showAll.classList.remove("hidden");
+  } else {
+    showAll.classList.add("hidden");
+  }
+  selectPage(state.drawer.pages[0]);
 }
 
 async function fetchDocument(docId) {
@@ -874,6 +932,14 @@ function bind() {
   $("start-at").addEventListener("change", refreshSummary);
   $("output-name").addEventListener("input", refreshSummary);
 
+  // dimensione tessere
+  document.querySelectorAll("#tile-size button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      applyTileSize(btn.dataset.size);
+      saveTileSize(btn.dataset.size);
+    });
+  });
+
   // ricerca
   $("search").addEventListener("input", () => {
     state.search = $("search").value;
@@ -883,6 +949,10 @@ function bind() {
   // drawer
   $("drawer-close").addEventListener("click", closeDrawer);
   $("drawer-cancel").addEventListener("click", cancelDrawerJob);
+  $("drawer-showall").addEventListener("click", () => {
+    appendStripThumbs(PAGE_STRIP_LIMIT, state.drawer.pages.length);
+    $("drawer-showall").classList.add("hidden");
+  });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeWizard(); closeDrawer(); }
@@ -891,6 +961,7 @@ function bind() {
 
 (async function main() {
   bind();
+  applyTileSize(loadTileSize());
   try {
     await loadMeta();
     await refreshGrid();

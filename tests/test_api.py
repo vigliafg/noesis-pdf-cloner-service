@@ -107,8 +107,9 @@ def test_job_cover(client):
 
 
 def test_job_cover_written_on_completion(client, ctx):
-    """Il worker genera la copertina a fine job (non solo in modo lazy)."""
-    from app.covers import ensure_cover
+    """Il worker genera la copertina (prima pagina del documento) a fine job."""
+    from app.covers import COVER_WIDTH, ensure_cover
+    from app.engine import CloneEngine
     from app.models import JobRecord
 
     document = _upload(client, pages=4)
@@ -127,12 +128,17 @@ def test_job_cover_written_on_completion(client, ctx):
     job_id = response.json()["job_id"]
     _poll(client, job_id)
 
-    cover = ctx.settings.artifacts_dir / job_id / "cover.png"
+    cover = ctx.storage.job_cover_path(job_id)
     deadline = time.time() + 5
     while time.time() < deadline and not cover.is_file():
         time.sleep(0.05)
     assert cover.is_file(), "il worker non ha scritto la copertina a fine job"
     assert cover.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+    # è la PRIMA pagina del documento, non la prima tradotta (qui 2-3)
+    doc = ctx.storage.get_document(document["doc_id"])
+    expected = CloneEngine.render_thumb(doc.path, 0, width=COVER_WIDTH)
+    assert cover.read_bytes() == expected
 
     # idempotente: non riscrive un file già presente
     mtime = cover.stat().st_mtime_ns

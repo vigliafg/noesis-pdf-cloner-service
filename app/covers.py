@@ -1,4 +1,4 @@
-"""Copertine delle tessere di storico: miniatura della prima pagina del job.
+"""Copertine delle tessere di storico: miniatura della prima pagina del documento.
 
 Service-only: non esiste una controparte nel repo desktop (là non c'è una
 griglia di storico con copertine). La copertina è accessoria: la sua
@@ -15,11 +15,16 @@ from .engine import CloneEngine
 from .models import JobRecord
 from .storage import Storage
 
-COVER_WIDTH = 420
+COVER_WIDTH = 560
+_LEGACY_COVER = "cover.png"
 
 
 def ensure_cover(storage: Storage, job: JobRecord, *, width: int = COVER_WIDTH) -> Path | None:
-    """Rende (una volta sola) la copertina in ``artifact_dir/cover.png``.
+    """Rende (una volta sola) la copertina in ``artifact_dir/cover_page1.png``.
+
+    La copertina è la **prima pagina del documento**, non la prima pagina
+    tradotta: nella griglia serve a riconoscere il documento a colpo d'occhio,
+    mentre il chip intervallo dice cosa è stato tradotto.
 
     Ritorna il percorso della copertina, oppure ``None`` se il documento
     sorgente non è (più) disponibile o il render fallisce. È idempotente:
@@ -38,9 +43,8 @@ def ensure_cover(storage: Storage, job: JobRecord, *, width: int = COVER_WIDTH) 
     if document is None:
         return None
 
-    page = job.pages[0] if job.pages else 0
     try:
-        data = CloneEngine.render_thumb(document.path, page, width=width)
+        data = CloneEngine.render_thumb(document.path, 0, width=width)
     except Exception:  # noqa: BLE001 - copertina accessoria
         return None
 
@@ -50,6 +54,8 @@ def ensure_cover(storage: Storage, job: JobRecord, *, width: int = COVER_WIDTH) 
         with open(tmp, "wb") as handle:
             handle.write(data)
         os.replace(tmp, cover)
+        # la vecchia copertina (prima pagina tradotta) non è più valida
+        (cover.parent / _LEGACY_COVER).unlink(missing_ok=True)
     except OSError:
         return None
     return cover
