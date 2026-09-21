@@ -179,8 +179,8 @@ def _process_one(
         pages = parse_pages(args.pages, document.page_count)
     except ValueError as exc:
         raise EngineError(str(exc)) from exc
-    if len(pages) > settings.max_pages_per_job:
-        raise EngineError(f"troppe pagine (max {settings.max_pages_per_job})")
+    if len(pages) > settings.max_pages_total:
+        raise EngineError(f"troppe pagine (max {settings.max_pages_total})")
 
     stem = sanitize_stem(args.output or f"{pdf.stem}_{args.dst}", "output")
     job = JobRecord(

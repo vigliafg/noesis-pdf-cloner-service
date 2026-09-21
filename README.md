@@ -108,7 +108,8 @@ Endpoint: `POST/GET/DELETE /documents`, `GET /documents/{id}/thumb`,
 | `MAX_ENGINE_PROCS` | `4` | processi `pdf2zh_next` simultanei |
 | `MAX_UPLOAD_MB` | `500` | dimensione massima upload |
 | `MAX_QUEUE_SIZE` | `100` | job in coda prima di rispondere 429 |
-| `MAX_PAGES_PER_JOB` | `200` | pagine massime per job |
+| `MAX_PAGES_PER_BLOCK` | `100` | pagine elaborate per blocco (il job può coprire l'intero libro) |
+| `MAX_PAGES_TOTAL` | `5000` | pagine massime richiedibili in un job |
 | `JOB_RETENTION_HOURS` | `72` | retention di artefatti e log |
 | `DOCUMENT_RETENTION_HOURS` | `24` | retention dei documenti non usati |
 | `PDF2ZH_BIN` | auto | percorso dell'eseguibile `pdf2zh_next` |

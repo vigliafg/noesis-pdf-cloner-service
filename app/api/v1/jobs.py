@@ -73,10 +73,10 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
         pages = parse_pages(payload.pages, document.page_count)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if len(pages) > settings.max_pages_per_job:
+    if len(pages) > settings.max_pages_total:
         raise HTTPException(
             status_code=413,
-            detail=f"troppe pagine (max {settings.max_pages_per_job} per job)",
+            detail=f"troppe pagine (max {settings.max_pages_total} per job)",
         )
     check_quota(actor, len(pages), settings, ctx.storage)
 

@@ -156,6 +156,16 @@ def test_cancel_after_done_is_noop(client):
     assert cancelled.json()["state"] == "done"
 
 
+def test_job_rejects_over_total_limit(client, ctx):
+    ctx.settings.max_pages_total = 1
+    document = _upload(client, pages=2)
+    response = client.post(
+        "/api/v1/jobs",
+        json={"doc_id": document["doc_id"], "pages": "1-2", "dst_lang": "it"},
+    )
+    assert response.status_code == 413
+
+
 def test_meta_and_health(client):
     meta = client.get("/api/v1/meta").json()
     assert "google" in meta["engines"]

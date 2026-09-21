@@ -19,7 +19,8 @@ def get_meta(request: Request) -> MetaOut:
         languages=LANGUAGES,
         limits={
             "max_upload_mb": settings.max_upload_mb,
-            "max_pages_per_job": settings.max_pages_per_job,
+            "max_pages_per_block": settings.max_pages_per_block,
+            "max_pages_total": settings.max_pages_total,
             "max_queue_size": settings.max_queue_size,
             "page_concurrency": settings.page_concurrency,
             "max_engine_procs": settings.max_engine_procs,

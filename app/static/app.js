@@ -70,8 +70,8 @@ async function loadMeta() {
   const version = $("service-meta").dataset.version || $("service-meta").textContent.trim();
   $("service-meta").dataset.version = version;
   $("service-meta").textContent =
-    `${version} · max ${state.meta.limits.max_pages_per_job} pag/job · ` +
-    `${state.meta.limits.max_engine_procs} proc motore`;
+    `${version} · blocchi da ${state.meta.limits.max_pages_per_block} pagine · ` +
+    `max ${state.meta.limits.max_pages_total} pag/job`;
 }
 
 /* ── upload ────────────────────────────────────────────────────────────── */

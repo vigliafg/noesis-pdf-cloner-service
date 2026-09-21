@@ -83,6 +83,25 @@ def test_merged_pdf_keeps_selection_order(settings):
     storage.close()
 
 
+def test_pages_are_processed_in_blocks(settings):
+    """Libri interi: le pagine vengono lavorate a blocchi (ordine preservato)."""
+    settings.max_pages_per_block = 2
+    storage, job = _setup(settings, pages=5)
+    engine = FakeEngine(settings.cache_root)
+    result = run_job(
+        storage=storage, engine=engine, job=job, settings=settings,
+        logger=JobLogger(storage, "j"),
+    )
+    assert result.pages_done == 5
+    with pymupdf.open(result.artifact_path) as doc:
+        assert doc.page_count == 5
+        assert "pagina 1" in doc[0].get_text("text")
+        assert "pagina 5" in doc[4].get_text("text")
+    blocks = [e for e in read_events(storage, "j") if e["stage"] == "block"]
+    assert len(blocks) == 3  # 2 + 2 + 1
+    storage.close()
+
+
 def test_partial_failure(settings):
     storage, job = _setup(settings, pages=3)
     engine = FailingEngine(settings.cache_root, fail_page=1)

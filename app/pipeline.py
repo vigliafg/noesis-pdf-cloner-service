@@ -120,55 +120,73 @@ def run_job(
         )
 
     cancelled = False
+    block_size = max(1, settings.max_pages_per_block)
+    blocks = [pages[i:i + block_size] for i in range(0, len(pages), block_size)]
     with ThreadPoolExecutor(max_workers=max(1, settings.page_concurrency)) as pool:
-        futures = {pool.submit(work, page): page for page in pages}
-        for future in as_completed(futures):
-            page = futures[future]
-            page_start = time.monotonic()
-            try:
-                future.result()
-                page_ms = int((time.monotonic() - page_start) * 1000)
-                done += 1
-                results.append(PageResult(page=page, ok=True, duration_ms=page_ms))
-                if logger:
-                    logger.event(
-                        "translate_page",
-                        f"pagina {page + 1} tradotta",
-                        page=page,
-                        status="ok",
-                        duration_ms=page_ms,
-                    )
-            except TranslationCancelled as exc:
+        for block_index, block in enumerate(blocks, start=1):
+            if cancel_event is not None and cancel_event.is_set():
                 cancelled = True
-                failed += 1
-                results.append(
-                    PageResult(page=page, ok=False, error=str(exc) or "annullato")
+                break
+            if logger:
+                logger.event(
+                    "block",
+                    f"blocco {block_index}/{len(blocks)}: "
+                    f"pagine {block[0] + 1}-{block[-1] + 1}",
+                    block=block_index,
+                    blocks=len(blocks),
+                    page_from=block[0],
+                    page_to=block[-1],
                 )
-                if logger:
-                    logger.event(
-                        "cancelled",
-                        f"pagina {page + 1} annullata",
-                        page=page,
-                        level="warning",
-                        status="cancelled",
+            futures = {pool.submit(work, page): page for page in block}
+            for future in as_completed(futures):
+                page = futures[future]
+                page_start = time.monotonic()
+                try:
+                    future.result()
+                    page_ms = int((time.monotonic() - page_start) * 1000)
+                    done += 1
+                    results.append(PageResult(page=page, ok=True, duration_ms=page_ms))
+                    if logger:
+                        logger.event(
+                            "translate_page",
+                            f"pagina {page + 1} tradotta",
+                            page=page,
+                            status="ok",
+                            duration_ms=page_ms,
+                        )
+                except TranslationCancelled as exc:
+                    cancelled = True
+                    failed += 1
+                    results.append(
+                        PageResult(page=page, ok=False, error=str(exc) or "annullato")
                     )
-            except Exception as exc:  # noqa: BLE001 - riportato nel job
-                failed += 1
-                reason = str(exc) or exc.__class__.__name__
-                results.append(PageResult(page=page, ok=False, error=reason))
-                if logger:
-                    logger.event(
-                        "translate_page",
-                        f"pagina {page + 1} non riuscita: {reason}",
-                        page=page,
-                        level="error",
-                        status="error",
-                    )
-            storage.update_job(
-                job.job_id, pages_done=done, pages_failed=failed
-            )
-            if on_page_done:
-                on_page_done(done, total, page, results[-1].ok)
+                    if logger:
+                        logger.event(
+                            "cancelled",
+                            f"pagina {page + 1} annullata",
+                            page=page,
+                            level="warning",
+                            status="cancelled",
+                        )
+                except Exception as exc:  # noqa: BLE001 - riportato nel job
+                    failed += 1
+                    reason = str(exc) or exc.__class__.__name__
+                    results.append(PageResult(page=page, ok=False, error=reason))
+                    if logger:
+                        logger.event(
+                            "translate_page",
+                            f"pagina {page + 1} non riuscita: {reason}",
+                            page=page,
+                            level="error",
+                            status="error",
+                        )
+                storage.update_job(
+                    job.job_id, pages_done=done, pages_failed=failed
+                )
+                if on_page_done:
+                    on_page_done(done, total, page, results[-1].ok)
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
 
     # ── artefatto finale ───────────────────────────────────────────────
     # Ordine deterministico: le pagine vanno esportate nell'ordine della
