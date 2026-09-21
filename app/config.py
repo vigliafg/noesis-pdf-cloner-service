@@ -84,7 +84,11 @@ class Settings:
 
     # ── stima tempo/costo (0 = usa i default interni) ───────────────────
     estimate_ms_per_page: dict = field(default_factory=dict)  # engine → ms
-    cost_cents_per_page: dict = field(default_factory=dict)  # engine → centesimi
+    # Prezzo commerciale per pagina (centesimi). Il motore LLM ha 1 cent/pagina
+    # (sovrascrive l'equazione di costo); google/bing restano gratuiti.
+    cost_cents_per_page: dict = field(
+        default_factory=lambda: {"google": 0, "bing": 0, "openai": 1}
+    )
 
     # Modello di costo LLM (Mercury/OpenRouter), prezzi USD per milione di token.
     # Il fattore di overhead cattura i prompt ripetuti per chunk da pdf2zh_next
@@ -190,7 +194,7 @@ class Settings:
             cost_cents_per_page={
                 "google": _env_int("COST_CENTS_PER_PAGE_GOOGLE", 0),
                 "bing": _env_int("COST_CENTS_PER_PAGE_BING", 0),
-                "openai": _env_int("COST_CENTS_PER_PAGE_OPENAI", 0),
+                "openai": _env_int("COST_CENTS_PER_PAGE_OPENAI", 1),
             },
             llm_price_prompt_per_mtok=_env_float("LLM_PRICE_PROMPT_PER_MTOK", 0.04),
             llm_price_completion_per_mtok=_env_float("LLM_PRICE_COMPLETION_PER_MTOK", 0.15),

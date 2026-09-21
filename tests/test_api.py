@@ -234,7 +234,24 @@ def test_scheduled_job_in_past_runs(client):
     assert job["state"] == "done"
 
 
-def test_estimate_llm_cost(client):
+def test_estimate_llm_commercial_price(client):
+    document = _upload(client, pages=2)
+    estimate = client.post(
+        "/api/v1/jobs/estimate",
+        json={
+            "doc_id": document["doc_id"], "pages": "1-2",
+            "dst_lang": "it", "engine": "openai",
+        },
+    ).json()
+    # Prezzo commerciale di default: 1 centesimo/pagina (EUR).
+    assert estimate["currency"] == "EUR"
+    assert estimate["cost_cents"] == 2.0
+    assert "configurato" in estimate["note"]
+
+
+def test_estimate_llm_cost_model(client, ctx):
+    # Senza prezzo configurato vale l'equazione calibrata (USD).
+    ctx.settings.cost_cents_per_page = {}
     document = _upload(client, pages=2)
     estimate = client.post(
         "/api/v1/jobs/estimate",

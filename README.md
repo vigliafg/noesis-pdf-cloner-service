@@ -150,7 +150,7 @@ senza overhead dava $0.00040, ~13× in meno). I parametri sono configurabili
 | `MAX_PAGES_TOTAL` | `5000` | pagine massime richiedibili in un job |
 | `SCHEDULE_POLL_SECONDS` | `30` | frequenza del pianificatore (job notturni) |
 | `ESTIMATE_MS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` | override stima ms/pagina (`0` = storico/default) |
-| `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` | prezzo esplicito per pagina in centesimi (0 = usa il modello LLM sotto) |
+| `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` / `0` / `1` | prezzo per pagina in centesimi (LLM: 1 = commerciale; 0 = usa l'equazione) |
 | `LLM_PRICE_PROMPT_PER_MTOK` | `0.04` | prezzo prompt LLM (USD per milione di token) |
 | `LLM_PRICE_COMPLETION_PER_MTOK` | `0.15` | prezzo completion LLM (USD per milione di token) |
 | `LLM_OVERHEAD_FACTOR` | `13.3` | fattore overhead dei prompt/chunk (calibrato) |
