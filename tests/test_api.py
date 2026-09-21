@@ -63,6 +63,30 @@ def test_delete_document(client):
     assert client.get(f"/api/v1/documents/{document['doc_id']}").status_code == 404
 
 
+def test_job_cover(client):
+    document = _upload(client, pages=3)
+    response = client.post(
+        "/api/v1/jobs",
+        json={
+            "doc_id": document["doc_id"],
+            "pages": "2",
+            "dst_lang": "it",
+            "engine": "google",
+            "output_name": "cover_test",
+            "range_mode": "merged",
+        },
+    )
+    assert response.status_code == 201, response.text
+    job = _poll(client, response.json()["job_id"])
+
+    assert client.get("/api/v1/jobs/nonesistente/cover").status_code == 404
+
+    cover = client.get(f"/api/v1/jobs/{job['job_id']}/cover")
+    assert cover.status_code == 200
+    assert cover.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert cover.headers["content-type"] == "image/png"
+
+
 def test_job_merged_flow(client):
     document = _upload(client, pages=3)
     response = client.post(

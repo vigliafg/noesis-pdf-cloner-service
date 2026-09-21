@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import uuid
 from datetime import timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from ... import audit
 from ...auth import Actor, authorize, get_current_actor
+from ...engine import CloneEngine
 from ...estimate import estimate_job
 from ...metrics import JOBS_SUBMITTED, METRICS
 from ...models import (
@@ -194,6 +196,13 @@ def list_jobs(request: Request, limit: int = 50, actor: Actor = Depends(get_curr
             output_name=j.output_name,
             pages_total=j.pages_total,
             pages_done=j.pages_done,
+            pages_failed=j.pages_failed,
+            range_mode=j.range_mode,
+            queue_position=(
+                ctx.queue_position(j.job_id) if j.state == JobState.queued else None
+            ),
+            scheduled_at=j.scheduled_at,
+            duration_ms=j.duration_ms,
             created=j.created,
         )
         for j in jobs
@@ -241,6 +250,41 @@ def download(job_id: str, request: Request, actor: Actor = Depends(get_current_a
     filename = f"{job.output_name}{suffix}"
     audit.record(ctx.storage, actor, "job.download", job_id)
     return FileResponse(job.artifact_path, filename=filename)
+
+
+@router.get("/{job_id}/cover")
+def job_cover(job_id: str, request: Request, actor: Actor = Depends(get_current_actor)) -> Response:
+    """Copertina della tessera di storico: miniatura della prima pagina del job.
+
+    Salvata in ``artifact_dir/cover.png`` e generata in modo lazy al primo
+    accesso (se il documento sorgente esiste ancora). Sopravvive alla pulizia
+    del documento (retention job > documento).
+    """
+    ctx = get_ctx(request)
+    job = ctx.storage.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job non trovato")
+    authorize(actor, job.owner_id)
+    cover = ctx.storage.job_cover_path(job_id)
+    if not cover.is_file():
+        document = ctx.storage.get_document(job.doc_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail="copertina non disponibile")
+        page = job.pages[0] if job.pages else 0
+        try:
+            data = CloneEngine.render_thumb(document.path, page, width=420)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=404, detail="copertina non disponibile") from exc
+        cover.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cover.with_suffix(f".{uuid.uuid4().hex}.tmp")
+        with open(tmp, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp, cover)
+    return Response(
+        content=cover.read_bytes(),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @router.post("/{job_id}/cancel", response_model=JobOut)

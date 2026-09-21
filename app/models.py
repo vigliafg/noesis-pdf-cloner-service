@@ -154,6 +154,11 @@ class JobSummary(BaseModel):
     output_name: str
     pages_total: int
     pages_done: int
+    pages_failed: int = 0
+    range_mode: RangeMode = RangeMode.merged
+    queue_position: int | None = None
+    scheduled_at: datetime | None = None
+    duration_ms: int | None = None
     created: datetime
 
 

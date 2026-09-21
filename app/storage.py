@@ -454,5 +454,9 @@ class Storage:
     def artifact_dir(self, job_id: str) -> Path:
         return self.settings.artifacts_dir / job_id
 
+    def job_cover_path(self, job_id: str) -> Path:
+        """Copertina della tessera di storico (miniatura della prima pagina del job)."""
+        return self.artifact_dir(job_id) / "cover.png"
+
     def job_log_path(self, job_id: str) -> Path:
         return self.settings.jobs_log_dir / f"{job_id}.jsonl"

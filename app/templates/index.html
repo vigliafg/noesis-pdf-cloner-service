@@ -12,87 +12,130 @@
     <div class="meta" id="service-meta">v{{ version }}</div>
   </header>
 
-  <main class="layout">
-    <!-- ── Colonna sinistra: upload + parametri ── -->
-    <section class="card col-controls">
-      <h2>1 · Carica il PDF</h2>
-      <div id="dropzone" class="dropzone">
+  <div class="wrap">
+    <div class="toolbar">
+      <h1>I miei lavori</h1>
+      <div class="spacer"></div>
+      <input class="search" id="search" type="search" placeholder="Cerca per nome, lingua, stato…">
+    </div>
+    <section class="grid" id="grid" data-progress="liquid" aria-live="polite"></section>
+    <p class="empty hidden" id="empty">Nessun lavoro ancora. Clicca <strong>＋</strong> per iniziare.</p>
+  </div>
+
+  <!-- ── WIZARD ─────────────────────────────────────────────────────────── -->
+  <div class="backdrop" id="wizard" role="dialog" aria-modal="true" aria-label="Nuovo lavoro">
+    <div class="modal">
+      <header>
+        <b>Nuovo lavoro</b>
+        <button class="x" id="wizard-close" title="Chiudi">✕</button>
+      </header>
+      <div class="steps" id="steps"></div>
+
+      <!-- 1 · file -->
+      <div class="pane" data-step="0">
+        <h3>Scegli il PDF</h3>
+        <p class="hint">Trascina un file o selezionalo. Libri interi a blocchi di max 100 pagine.</p>
         <input type="file" id="file-input" accept="application/pdf" hidden>
-        <p><strong>Trascina qui un PDF</strong> oppure <button type="button" id="browse" class="link">scegli un file</button></p>
-        <p class="hint" id="upload-status">Nessun file caricato</p>
-      </div>
-
-      <h2>2 · Parametri</h2>
-      <form id="job-form" class="form" autocomplete="off">
-        <label>Pagine
-          <input type="text" id="pages" value="all" placeholder="all · 7 · 100-103 · 3,5,10-12">
-        </label>
-        <div class="grid2">
-          <label>Lingua origine
-            <select id="src-lang"></select>
-          </label>
-          <label>Lingua destinazione
-            <select id="dst-lang"></select>
-          </label>
+        <div class="drop" id="dropzone">⬆ &nbsp;Trascina qui il PDF oppure <u>scegli un file</u></div>
+        <div class="filecard hidden" id="file-card">
+          <div class="mini"><div class="band"></div><div class="lines"></div></div>
+          <div><b id="file-name"></b><div class="hint" id="file-meta" style="margin:0"></div></div>
         </div>
-        <label>Motore
-          <select id="engine"></select>
-        </label>
-        <label>Nome del PDF finale
-          <input type="text" id="output-name" placeholder="es. ha22_it">
-        </label>
-        <label>Avvio programmato <span class="hint">(opzionale, per job notturni)</span>
-          <input type="datetime-local" id="start-at">
-        </label>
-        <fieldset class="range-mode">
-          <legend>Se è un intervallo di pagine</legend>
-          <label class="inline"><input type="radio" name="range_mode" value="merged" checked> Un unico PDF</label>
-          <label class="inline"><input type="radio" name="range_mode" value="single"> Pagine singole (ZIP)</label>
-        </fieldset>
-        <div id="estimate" class="estimate hint"></div>
-        <button type="submit" id="submit" class="primary" disabled>Avvia la traduzione</button>
-      </form>
-    </section>
-
-    <!-- ── Colonna centrale: anteprima (prima/ultima pagina) ── -->
-    <section class="card col-preview">
-      <h2>Anteprima</h2>
-      <div id="preview" class="preview">
-        <p class="hint">Carica un PDF per vedere la miniatura della pagina (o della prima e ultima del range).</p>
-      </div>
-    </section>
-
-    <!-- ── Colonna destra: stato + log ── -->
-    <section class="card col-exec">
-      <h2>3 · Esecuzione</h2>
-      <div class="statusbar">
-        <span id="job-state" class="badge idle">in attesa</span>
-        <span id="queue-pos" class="hint"></span>
-      </div>
-      <div class="progress"><div id="progress-fill" class="progress-fill"></div></div>
-      <div class="counters">
-        <span id="counter-pages">0 / 0 pagine</span>
-        <span id="counter-eta" class="hint"></span>
-      </div>
-      <div class="actions">
-        <button id="cancel" class="danger" disabled>Annulla</button>
-        <a id="download" class="primary hidden" href="#">⬇ Scarica</a>
       </div>
 
-      <div class="log-head">
-        <h2>Log di esecuzione</h2>
-        <button type="button" id="log-toggle" class="chevron" aria-expanded="true"
-                aria-controls="log" title="Mostra/nascondi il log (spazio alle anteprime)">▾</button>
+      <!-- 2 · pagine -->
+      <div class="pane" data-step="1" hidden>
+        <h3>Quali pagine?</h3>
+        <p class="hint">Puoi indicare “all” per tutte, una pagina o un intervallo (es. 100-102).</p>
+        <div class="row">
+          <div class="field"><label>Pagine</label>
+            <input type="text" id="pages" value="all" placeholder="all · 7 · 100-103 · 3,5,10-12">
+          </div>
+          <div class="field"><label>&nbsp;</label>
+            <div class="seg" id="pages-preset">
+              <button type="button" data-preset="all" class="on">Tutte</button>
+              <button type="button" data-preset="range">Intervallo</button>
+            </div>
+          </div>
+        </div>
+        <div class="thumbs" id="preview"></div>
       </div>
-      <pre id="log" class="log" aria-live="polite"></pre>
-    </section>
 
-    <!-- ── Fascia orizzontale: storico ── -->
-    <section class="card col-history">
-      <h2>Storico</h2>
-      <ul id="history" class="history"></ul>
-    </section>
-  </main>
+      <!-- 3 · lingue -->
+      <div class="pane" data-step="2" hidden>
+        <h3>Lingue</h3>
+        <p class="hint">Origine “Auto” riconosce la lingua da sola.</p>
+        <div class="row">
+          <div class="field"><label>Da</label><select id="src-lang"></select></div>
+          <div class="field"><label>A</label><select id="dst-lang"></select></div>
+        </div>
+      </div>
+
+      <!-- 4 · motore -->
+      <div class="pane" data-step="3" hidden>
+        <h3>Motore</h3>
+        <p class="hint">Google/Bing sono gratuiti; LLM (OpenRouter) ha un costo per pagina.</p>
+        <div id="engines"></div>
+        <div class="est" id="estimate"></div>
+      </div>
+
+      <!-- 5 · output -->
+      <div class="pane" data-step="4" hidden>
+        <h3>Output e avvio</h3>
+        <p class="hint">Ultimo controllo, poi parte.</p>
+        <div class="field"><label>Nome del PDF finale</label>
+          <input type="text" id="output-name" placeholder="es. ha22_it"></div>
+        <div class="row">
+          <div class="field"><label>Se è un intervallo</label>
+            <div class="seg" id="range-mode">
+              <button type="button" data-rm="merged" class="on">Un unico PDF</button>
+              <button type="button" data-rm="single">ZIP pagine singole</button>
+            </div>
+          </div>
+          <div class="field"><label>Avvio</label>
+            <div class="seg" id="start-mode">
+              <button type="button" data-sm="now" class="on">Subito</button>
+              <button type="button" data-sm="later">Programmato</button>
+            </div>
+          </div>
+        </div>
+        <div class="field hidden" id="start-at-wrap"><label>Data e ora</label>
+          <input type="datetime-local" id="start-at"></div>
+        <div class="sum" id="summary"></div>
+        <p class="hint hidden" id="wizard-error"></p>
+      </div>
+
+      <footer>
+        <button class="btn ghost" id="wizard-cancel">Annulla</button>
+        <div class="foot-right">
+          <button class="btn" id="wizard-prev">← Indietro</button>
+          <button class="btn primary" id="wizard-next">Avanti →</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ── DRAWER ─────────────────────────────────────────────────────────── -->
+  <aside class="drawer" id="drawer" aria-label="Dettaglio job">
+    <header>
+      <b id="drawer-title">job</b>
+      <div class="foot-right">
+        <span class="badge idle" id="drawer-badge">…</span>
+        <button class="x" id="drawer-close" title="Chiudi">✕</button>
+      </div>
+    </header>
+    <div class="body">
+      <div class="tile-meta" id="drawer-meta"></div>
+      <div class="progress"><i id="drawer-fill"></i></div>
+      <div class="tile-meta" id="drawer-eta"></div>
+      <pre class="log" id="drawer-log" aria-live="polite"></pre>
+      <p class="note">Il job continua anche se chiudi il browser: lo ritrovi qui al rientro.</p>
+    </div>
+    <footer>
+      <button class="btn danger" id="drawer-cancel" disabled>Annulla</button>
+      <a class="btn primary hidden" id="drawer-download" href="#">⬇ Scarica</a>
+    </footer>
+  </aside>
 
   <script src="/static/app.js"></script>
 </body>
