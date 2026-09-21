@@ -36,7 +36,7 @@ Serve **Python 3.12** e [uv](https://docs.astral.sh/uv/).
 
 ```bash
 ./setup_engine.sh     # crea .venv2 e installa pdf2zh_next (motore)
-./run.sh              # avvia il server su http://127.0.0.1:8000
+./run.sh              # avvia il server su http://127.0.0.1:18080
 ```
 
 Il server **deve** girare con un solo processo uvicorn (`run.sh` lo fa già):
@@ -72,23 +72,23 @@ Base: `/api/v1`. Esempi con `curl`:
 
 ```bash
 # 1) carica il PDF (ritorna doc_id, page_count, etichette)
-curl -s -F "file=@ha22.pdf" http://127.0.0.1:8000/api/v1/documents
+curl -s -F "file=@ha22.pdf" http://127.0.0.1:18080/api/v1/documents
 
 # 2) anteprima di una pagina (PNG)
-curl -s "http://127.0.0.1:8000/api/v1/documents/<doc_id>/thumb?page=155&w=200" -o p156.png
+curl -s "http://127.0.0.1:18080/api/v1/documents/<doc_id>/thumb?page=155&w=200" -o p156.png
 
 # 3) crea il job
-curl -s -X POST http://127.0.0.1:8000/api/v1/jobs \
+curl -s -X POST http://127.0.0.1:18080/api/v1/jobs \
   -H 'Content-Type: application/json' \
   -d '{"doc_id":"<doc_id>","pages":"156-159","src_lang":"en","dst_lang":"it",
        "engine":"google","output_name":"ha22_it","range_mode":"merged"}'
 
 # 4) stato e log live
-curl -s http://127.0.0.1:8000/api/v1/jobs/<job_id>
-curl -N http://127.0.0.1:8000/api/v1/jobs/<job_id>/events
+curl -s http://127.0.0.1:18080/api/v1/jobs/<job_id>
+curl -N http://127.0.0.1:18080/api/v1/jobs/<job_id>/events
 
 # 5) download
-curl -sOJ http://127.0.0.1:8000/api/v1/jobs/<job_id>/download
+curl -sOJ http://127.0.0.1:18080/api/v1/jobs/<job_id>/download
 ```
 
 Endpoint: `POST/GET/DELETE /documents`, `GET /documents/{id}/thumb`,
@@ -100,7 +100,7 @@ Endpoint: `POST/GET/DELETE /documents`, `GET /documents/{id}/thumb`,
 
 | Variabile | Default | Descrizione |
 |---|---|---|
-| `HOST` / `PORT` | `127.0.0.1` / `8000` | bind del server |
+| `HOST` / `PORT` | `127.0.0.1` / `18080` | bind del server |
 | `DATA_DIR` | `./data` | dati (upload, DB, log, artefatti) |
 | `CACHE_ROOT` | `<DATA_DIR>/cache` | cache di split/traduzioni (condivisa con la CLI) |
 | `WORKERS` | `max(2, cpu)` | worker della coda |

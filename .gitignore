@@ -11,6 +11,7 @@ __pycache__/
 data/
 cache/
 logs/
+out/
 
 # PDF di test (copyright: non committare)
 *.pdf

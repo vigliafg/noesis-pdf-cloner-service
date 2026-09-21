@@ -22,5 +22,5 @@ if [ ! -d .venv2 ]; then
 fi
 
 HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-18080}"
 exec .venv/bin/python -m uvicorn app.main:app --workers 1 --host "$HOST" --port "$PORT"

@@ -70,6 +70,25 @@ class FailingEngine(FakeEngine):
         )
 
 
+class SlowFirstEngine(FakeEngine):
+    """Rende più lenta la prima pagina: simula completamento fuori ordine."""
+
+    def __init__(self, *args, delay: float = 0.3, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.delay = delay
+
+    def translate_page(
+        self, src, doc_key, page, engine, lang_in, lang_out, cancel_event=None
+    ):
+        if page == 0:
+            import time
+
+            time.sleep(self.delay)
+        return super().translate_page(
+            src, doc_key, page, engine, lang_in, lang_out, cancel_event
+        )
+
+
 class FakeRunner(JobRunner):
     """Runner di test che usa :class:`FakeEngine`."""
 

@@ -10,7 +10,7 @@ from app.models import DocumentRecord, JobRecord, JobState, RangeMode
 from app.pipeline import run_job
 from app.storage import Storage
 
-from helpers import FailingEngine, FakeEngine, make_pdf
+from helpers import FailingEngine, FakeEngine, SlowFirstEngine, make_pdf
 
 
 def _setup(settings, pages=3, **kwargs):
@@ -67,6 +67,19 @@ def test_single_zip(settings):
         names = archive.namelist()
     assert len(names) == 3
     assert names[0].startswith("out_p")
+    storage.close()
+
+
+def test_merged_pdf_keeps_selection_order(settings):
+    """Regressione: l'ordine non deve dipendere dal completamento in parallelo."""
+    storage, job = _setup(settings, pages=3)
+    engine = SlowFirstEngine(settings.cache_root, delay=0.4)
+    result = run_job(storage=storage, engine=engine, job=job, settings=settings)
+    assert result.pages_done == 3
+    with pymupdf.open(result.artifact_path) as doc:
+        assert "pagina 1" in doc[0].get_text("text")
+        assert "pagina 2" in doc[1].get_text("text")
+        assert "pagina 3" in doc[2].get_text("text")
     storage.close()
 
 

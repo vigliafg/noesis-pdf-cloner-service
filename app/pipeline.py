@@ -171,7 +171,9 @@ def run_job(
                 on_page_done(done, total, page, results[-1].ok)
 
     # ── artefatto finale ───────────────────────────────────────────────
-    ok_pages = [r.page for r in results if r.ok]
+    # Ordine deterministico: le pagine vanno esportate nell'ordine della
+    # selezione, non nell'ordine (non deterministico) di completamento.
+    ok_pages = sorted(r.page for r in results if r.ok)
     artifact_path: str | None = None
     final_error: str | None = None
 

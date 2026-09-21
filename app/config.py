@@ -41,7 +41,7 @@ class Settings:
 
     # ── server ──────────────────────────────────────────────────────────
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = 18080
 
     # ── percorsi ────────────────────────────────────────────────────────
     data_dir: Path = field(default_factory=lambda: _REPO_ROOT / "data")
@@ -136,7 +136,7 @@ class Settings:
         cache_root = _env_str("CACHE_ROOT") or None
         return cls(
             host=_env_str("HOST", "127.0.0.1"),
-            port=_env_int("PORT", 8000),
+            port=_env_int("PORT", 18080),
             data_dir=Path(_env_str("DATA_DIR", str(_REPO_ROOT / "data"))),
             cache_root=Path(cache_root) if cache_root else None,
             workers=_env_int("WORKERS", 0),
