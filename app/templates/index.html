@@ -14,7 +14,7 @@
 
   <main class="layout">
     <!-- ── Colonna sinistra: upload + parametri ── -->
-    <section class="card">
+    <section class="card col-controls">
       <h2>1 · Carica il PDF</h2>
       <div id="dropzone" class="dropzone">
         <input type="file" id="file-input" accept="application/pdf" hidden>
@@ -52,15 +52,18 @@
         <div id="estimate" class="estimate hint"></div>
         <button type="submit" id="submit" class="primary" disabled>Avvia la traduzione</button>
       </form>
+    </section>
 
+    <!-- ── Colonna centrale: anteprima (prima/ultima pagina) ── -->
+    <section class="card col-preview">
       <h2>Anteprima</h2>
       <div id="preview" class="preview">
         <p class="hint">Carica un PDF per vedere la miniatura della pagina (o della prima e ultima del range).</p>
       </div>
     </section>
 
-    <!-- ── Colonna destra: stato + log + risultato ── -->
-    <section class="card">
+    <!-- ── Colonna destra: stato + log ── -->
+    <section class="card col-exec">
       <h2>3 · Esecuzione</h2>
       <div class="statusbar">
         <span id="job-state" class="badge idle">in attesa</span>
@@ -76,9 +79,16 @@
         <a id="download" class="primary hidden" href="#">⬇ Scarica</a>
       </div>
 
-      <h2>Log di esecuzione</h2>
+      <div class="log-head">
+        <h2>Log di esecuzione</h2>
+        <button type="button" id="log-toggle" class="chevron" aria-expanded="true"
+                aria-controls="log" title="Mostra/nascondi il log (spazio alle anteprime)">▾</button>
+      </div>
       <pre id="log" class="log" aria-live="polite"></pre>
+    </section>
 
+    <!-- ── Fascia orizzontale: storico ── -->
+    <section class="card col-history">
       <h2>Storico</h2>
       <ul id="history" class="history"></ul>
     </section>

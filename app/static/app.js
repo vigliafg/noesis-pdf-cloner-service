@@ -182,6 +182,30 @@ async function refreshEstimate() {
   }
 }
 
+/* ── log collassabile ──────────────────────────────────────────────────── */
+
+let logCollapsed = false;
+
+function setLogCollapsed(value) {
+  logCollapsed = value;
+  const log = $("log");
+  const toggle = $("log-toggle");
+  if (!log || !toggle) return;
+  log.classList.toggle("collapsed", value);
+  toggle.classList.toggle("collapsed", value);
+  toggle.setAttribute("aria-expanded", String(!value));
+  try { localStorage.setItem("noesis_log_collapsed", value ? "1" : "0"); } catch { /* ignore */ }
+}
+
+function bindLogToggle() {
+  const toggle = $("log-toggle");
+  if (!toggle) return;
+  let initial = false;
+  try { initial = localStorage.getItem("noesis_log_collapsed") === "1"; } catch { /* ignore */ }
+  setLogCollapsed(initial);
+  toggle.onclick = () => setLogCollapsed(!logCollapsed);
+}
+
 /* ── job ───────────────────────────────────────────────────────────────── */
 
 async function submitJob(event) {
@@ -211,7 +235,8 @@ async function submitJob(event) {
     return;
   }
   state.job = await response.json();
-  appendLog(`job ${state.job.job_id.slice(0, 8)} accodato (${state.job.pages_total} pagine, ${state.job.engine})`);
+  appendLog(`job ${state.job.job_id.slice(0, 8)} accodato (${state.job.pages_total} pagine, ${engineLabel(state.job.engine)})`);
+  if (logCollapsed) setLogCollapsed(false);  // mostra subito il log del nuovo job
   $("cancel").disabled = false;
   openStream(state.job.job_id);
   startPolling(state.job.job_id);
@@ -347,6 +372,7 @@ async function refreshHistory() {
 function bind() {
   const dropzone = $("dropzone");
   const input = $("file-input");
+  bindLogToggle();
   $("browse").onclick = () => input.click();
   input.onchange = () => uploadFile(input.files[0]);
   ["dragenter", "dragover"].forEach((ev) =>
