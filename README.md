@@ -14,6 +14,9 @@ Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-
 | `bing` | traduttore Bing built-in di pdf2zh_next |
 | `openai` | LLM via OpenRouter (`OPENROUTER_API_KEY`) |
 
+📐 **Documento tecnico delle scelte architetturali (implementate e future):
+[`ARCHITETTURA.md`](ARCHITETTURA.md).**
+
 ## Stato
 
 **Funzionante** (v0.1.0). Verificato end-to-end su un PDF reale (`ha22.pdf`,
