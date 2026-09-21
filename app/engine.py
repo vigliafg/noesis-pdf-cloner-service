@@ -540,6 +540,12 @@ class CloneEngine:
         env["PDF_LANG_IN"] = lang_in
         env["PDF_LANG_OUT"] = lang_out
         env["CLONE_ENGINE_EVENTS"] = str(self.cache_root / "engine_events.jsonl")
+        # Allinea il fallback LLM della catena gratuita (gtranslate_cli.py) alla
+        # configurazione del servizio, anche se il modello è cambiato via codice.
+        env["PDF_LLM_MODEL"] = self.llm_model
+        env["PDF_LLM_BASE_URL"] = self.llm_base_url
+        if self.api_key:
+            env["OPENROUTER_API_KEY"] = self.api_key
         try:
             log.info("traduzione pagina %d via %s", page + 1, t_name)
             result = self._run_engine(cmd, env, cancel_event)
