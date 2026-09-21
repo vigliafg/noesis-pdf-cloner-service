@@ -23,6 +23,11 @@ Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-
   range) con **numero fisico + etichetta stampata** (`/PageLabels`), per non
   confondere le due numerazioni dei PDF.
 - **Log di esecuzione** per ogni job (JSONL) e **streaming live via SSE**.
+- **Stima prima dell'avvio**: tempo (storico per motore + pagine in cache) e
+  costo stimati, mostrati nel frontend e via `POST /jobs/estimate`.
+- **Job notturni**: avvio programmato (`start_at`); la coda promuove
+  automaticamente i job quando arriva l'ora.
+- **Libri interi**: le pagine sono elaborate a blocchi da 100 (`MAX_PAGES_PER_BLOCK`).
 - **Coda a priorità** e **multithreading**: pool di worker + parallelismo per
   pagina + limite globale sui processi `pdf2zh_next`.
 - **CLI headless** con batch multi-PDF e barra `tqdm`, senza avviare il server.
@@ -92,9 +97,23 @@ curl -sOJ http://127.0.0.1:18080/api/v1/jobs/<job_id>/download
 ```
 
 Endpoint: `POST/GET/DELETE /documents`, `GET /documents/{id}/thumb`,
-`POST /jobs`, `GET /jobs`, `GET /jobs/{id}`, `GET /jobs/{id}/events`,
-`GET /jobs/{id}/download`, `POST /jobs/{id}/cancel`, `GET /meta`, `GET /health`,
-`GET /metrics`.
+`POST /jobs`, `POST /jobs/estimate`, `GET /jobs`, `GET /jobs/{id}`,
+`GET /jobs/{id}/events`, `GET /jobs/{id}/download`, `POST /jobs/{id}/cancel`,
+`GET /meta`, `GET /health`, `GET /metrics`.
+
+### Stima e avvio programmato
+
+```bash
+# stima tempo/costo di una selezione (prima di inviare il job)
+curl -s -X POST http://127.0.0.1:18080/api/v1/jobs/estimate \
+  -H 'Content-Type: application/json' \
+  -d '{"doc_id":"<doc_id>","pages":"200-206","engine":"google","dst_lang":"it"}'
+
+# job notturno: avvia tra due ore
+curl -s -X POST http://127.0.0.1:18080/api/v1/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"doc_id":"<doc_id>","pages":"1-120","engine":"google","start_at":"2026-09-21T23:00:00Z"}'
+```
 
 ## Configurazione (variabili d'ambiente)
 
@@ -110,6 +129,9 @@ Endpoint: `POST/GET/DELETE /documents`, `GET /documents/{id}/thumb`,
 | `MAX_QUEUE_SIZE` | `100` | job in coda prima di rispondere 429 |
 | `MAX_PAGES_PER_BLOCK` | `100` | pagine elaborate per blocco (il job può coprire l'intero libro) |
 | `MAX_PAGES_TOTAL` | `5000` | pagine massime richiedibili in un job |
+| `SCHEDULE_POLL_SECONDS` | `30` | frequenza del pianificatore (job notturni) |
+| `ESTIMATE_MS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` | override stima ms/pagina (`0` = storico/default) |
+| `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` | costo per pagina in centesimi (0 = gratis) |
 | `JOB_RETENTION_HOURS` | `72` | retention di artefatti e log |
 | `DOCUMENT_RETENTION_HOURS` | `24` | retention dei documenti non usati |
 | `PDF2ZH_BIN` | auto | percorso dell'eseguibile `pdf2zh_next` |

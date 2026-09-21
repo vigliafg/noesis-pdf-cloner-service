@@ -52,8 +52,8 @@ class Storage:
     _JOB_COLUMNS = {
         "pages", "src_lang", "dst_lang", "engine", "output_name", "range_mode",
         "state", "priority", "pages_total", "pages_done", "pages_failed",
-        "queue_position", "error", "artifact_path", "started", "finished",
-        "duration_ms",
+        "queue_position", "error", "artifact_path", "scheduled_at", "started",
+        "finished", "duration_ms",
     }
 
     def __init__(self, settings: Settings) -> None:
@@ -137,17 +137,17 @@ class Storage:
                    (job_id, doc_id, pages, src_lang, dst_lang, engine,
                     output_name, range_mode, state, priority, pages_total,
                     pages_done, pages_failed, queue_position, error,
-                    artifact_path, owner_id, created, started, finished,
-                    duration_ms)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    artifact_path, owner_id, created, scheduled_at, started,
+                    finished, duration_ms)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     job.job_id, job.doc_id, _json(job.pages), job.src_lang,
                     job.dst_lang, job.engine, job.output_name,
                     job.range_mode.value, job.state.value, job.priority,
                     job.pages_total, job.pages_done, job.pages_failed,
                     job.queue_position, job.error, job.artifact_path,
-                    job.owner_id, _iso(job.created), _iso(job.started),
-                    _iso(job.finished), job.duration_ms,
+                    job.owner_id, _iso(job.created), _iso(job.scheduled_at),
+                    _iso(job.started), _iso(job.finished), job.duration_ms,
                 ),
             )
             self._conn.commit()
@@ -186,7 +186,7 @@ class Storage:
                 encoded[key] = value.value if isinstance(value, RangeMode) else value
             elif key == "state":
                 encoded[key] = value.value if isinstance(value, JobState) else value
-            elif key in {"started", "finished"}:
+            elif key in {"started", "finished", "scheduled_at"}:
                 encoded[key] = _iso(value)
             else:
                 encoded[key] = value
@@ -213,6 +213,35 @@ class Storage:
             ).fetchall()
         return {r["state"]: r["n"] for r in rows}
 
+    def due_scheduled_jobs(self, now: datetime) -> list[JobRecord]:
+        """Job programmati la cui ora di avvio è arrivata."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM jobs WHERE state=? AND scheduled_at IS NOT NULL "
+                "AND scheduled_at <= ? ORDER BY priority DESC, scheduled_at",
+                (JobState.scheduled.value, _iso(now)),
+            ).fetchall()
+        return [self._row_to_job(r) for r in rows]
+
+    def engine_speed(self, engine: str, min_pages: int = 3) -> tuple[int, int]:
+        """Velocità media storica (ms/pagina, pagine campionate) per motore.
+
+        Ritorna ``(ms_per_page, samples)``; ``ms_per_page`` è 0 se i dati sono
+        insufficienti (in tal caso si usa una stima di default).
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(pages),0) AS p, "
+                "COALESCE(SUM(duration_ms),0) AS d FROM usage "
+                "WHERE engine=? AND duration_ms IS NOT NULL",
+                (engine,),
+            ).fetchone()
+        pages = int(row["p"] or 0)
+        duration = int(row["d"] or 0)
+        if pages >= min_pages and duration > 0:
+            return max(1, duration // pages), pages
+        return 0, pages
+
     def _row_to_job(self, row: sqlite3.Row) -> JobRecord:
         return JobRecord(
             job_id=row["job_id"],
@@ -233,6 +262,7 @@ class Storage:
             artifact_path=row["artifact_path"],
             owner_id=row["owner_id"],
             created=_parse(row["created"]) or utcnow(),
+            scheduled_at=_parse(row["scheduled_at"]),
             started=_parse(row["started"]),
             finished=_parse(row["finished"]),
             duration_ms=row["duration_ms"],

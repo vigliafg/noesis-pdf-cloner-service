@@ -98,6 +98,7 @@ async function uploadFile(file) {
   }
   $("submit").disabled = false;
   refreshPreview();
+  refreshEstimate();
   resetJobView();
 }
 
@@ -138,6 +139,44 @@ function refreshPreview() {
   }
 }
 
+async function refreshEstimate() {
+  const box = $("estimate");
+  if (!state.document) {
+    box.textContent = "";
+    return;
+  }
+  const payload = {
+    doc_id: state.document.doc_id,
+    pages: $("pages").value,
+    src_lang: $("src-lang").value,
+    dst_lang: $("dst-lang").value,
+    engine: $("engine").value,
+  };
+  try {
+    const response = await fetch(`${API}/jobs/estimate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      box.textContent = `stima non disponibile: ${detail.detail || response.status}`;
+      return;
+    }
+    const est = await response.json();
+    const cost = est.cost_cents > 0
+      ? `${(est.cost_cents / 100).toFixed(2)} €`
+      : "gratis / non configurato";
+    box.textContent =
+      `Da tradurre: ${est.pages_to_translate} di ${est.pages_total} · ` +
+      `già in cache: ${est.pages_cached} · ` +
+      `tempo stimato: ~${humanDuration(est.estimated_seconds * 1000)} · ` +
+      `costo: ${cost}`;
+  } catch {
+    box.textContent = "";
+  }
+}
+
 /* ── job ───────────────────────────────────────────────────────────────── */
 
 async function submitJob(event) {
@@ -153,6 +192,8 @@ async function submitJob(event) {
     output_name: $("output-name").value || null,
     range_mode: rangeMode,
   };
+  const startAt = $("start-at").value;
+  if (startAt) payload.start_at = new Date(startAt).toISOString();
   resetJobView();
   const response = await fetch(`${API}/jobs`, {
     method: "POST",
@@ -205,14 +246,16 @@ function startPolling(jobId) {
       if (state.eventSource) state.eventSource.close();
       $("cancel").disabled = true;
       refreshHistory();
+      return;
     }
+    // I job programmati si controllano raramente.
+    state.pollTimer = setTimeout(tick, job.state === "scheduled" ? 30000 : 1500);
   };
-  state.pollTimer = setInterval(tick, 1500);
   tick();
 }
 
 function stopPolling() {
-  if (state.pollTimer) clearInterval(state.pollTimer);
+  if (state.pollTimer) clearTimeout(state.pollTimer);
   state.pollTimer = null;
 }
 
@@ -221,7 +264,11 @@ function renderJob(job) {
   badge.textContent = job.state;
   badge.className = `badge ${job.state}`;
   $("queue-pos").textContent =
-    job.state === "queued" && job.queue_position ? `posizione in coda: ${job.queue_position}` : "";
+    job.state === "queued" && job.queue_position
+      ? `posizione in coda: ${job.queue_position}`
+      : job.state === "scheduled" && job.scheduled_at
+        ? `avvio programmato: ${new Date(job.scheduled_at).toLocaleString()}`
+        : "";
   const total = job.pages_total || 0;
   const done = job.pages_done + job.pages_failed;
   $("progress-fill").style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
@@ -305,7 +352,13 @@ function bind() {
     const file = e.dataTransfer.files[0];
     if (file) uploadFile(file);
   });
-  $("pages").addEventListener("input", () => setTimeout(refreshPreview, 200));
+  $("pages").addEventListener("input", () => {
+    setTimeout(refreshPreview, 200);
+    setTimeout(refreshEstimate, 250);
+  });
+  for (const id of ["engine", "src-lang", "dst-lang"]) {
+    $(id).addEventListener("change", refreshEstimate);
+  }
   $("job-form").addEventListener("submit", submitJob);
   $("cancel").onclick = cancelJob;
   $("dst-lang").addEventListener("change", () => {

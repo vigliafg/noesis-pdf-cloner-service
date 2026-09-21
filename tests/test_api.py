@@ -1,6 +1,7 @@
 """Test end-to-end dell'API (documenti, anteprima, job, SSE, download)."""
 
 import time
+from datetime import datetime, timedelta, timezone
 
 from helpers import pdf_bytes
 
@@ -164,6 +165,73 @@ def test_job_rejects_over_total_limit(client, ctx):
         json={"doc_id": document["doc_id"], "pages": "1-2", "dst_lang": "it"},
     )
     assert response.status_code == 413
+
+
+def test_estimate(client):
+    document = _upload(client, pages=3)
+    response = client.post(
+        "/api/v1/jobs/estimate",
+        json={
+            "doc_id": document["doc_id"], "pages": "1-3",
+            "dst_lang": "it", "engine": "google",
+        },
+    )
+    assert response.status_code == 200, response.text
+    estimate = response.json()
+    assert estimate["pages_total"] == 3
+    assert estimate["pages_cached"] == 0
+    assert estimate["pages_to_translate"] == 3
+    assert estimate["estimated_seconds"] > 0
+    assert "cache" in estimate["note"]
+
+
+def test_estimate_after_cache_hit(client):
+    document = _upload(client, pages=2)
+    response = client.post(
+        "/api/v1/jobs",
+        json={"doc_id": document["doc_id"], "pages": "1-2", "dst_lang": "it"},
+    )
+    _poll(client, response.json()["job_id"])
+    estimate = client.post(
+        "/api/v1/jobs/estimate",
+        json={"doc_id": document["doc_id"], "pages": "1-2", "dst_lang": "it"},
+    ).json()
+    # doppio: due job con la stessa firma → tutte in cache. Il primo era vuoto,
+    # quindi ci aspettiamo 0 da tradurre.
+    assert estimate["pages_cached"] == 2
+    assert estimate["pages_to_translate"] == 0
+
+
+def test_scheduled_job_in_future(client):
+    document = _upload(client, pages=1)
+    future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    response = client.post(
+        "/api/v1/jobs",
+        json={
+            "doc_id": document["doc_id"], "pages": "1",
+            "dst_lang": "it", "start_at": future,
+        },
+    )
+    assert response.status_code == 201, response.text
+    job = response.json()
+    assert job["state"] == "scheduled"
+    assert job["scheduled_at"] is not None
+    cancelled = client.post(f"/api/v1/jobs/{job['job_id']}/cancel")
+    assert cancelled.json()["state"] == "cancelled"
+
+
+def test_scheduled_job_in_past_runs(client):
+    document = _upload(client, pages=1)
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    response = client.post(
+        "/api/v1/jobs",
+        json={
+            "doc_id": document["doc_id"], "pages": "1",
+            "dst_lang": "it", "start_at": past,
+        },
+    )
+    job = _poll(client, response.json()["job_id"])
+    assert job["state"] == "done"
 
 
 def test_meta_and_health(client):

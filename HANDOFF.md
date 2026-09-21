@@ -22,6 +22,8 @@ priorità e parallelismo a livello pagina.
 - Cache **versionata**, scritture atomiche, lock inter-processo, process group
   per il cancel.
 - CLI headless batch con `tqdm`.
+- **Libri interi a blocchi da 100**, **stima tempo/costo** (`POST /jobs/estimate`)
+  e **job notturni** (`start_at`, stato `scheduled` promosso dallo scheduler).
 - Retention (`janitor`), metriche Prometheus, seam per auth/quota/OCR/email/audit.
 
 ## 2. Scelte tecniche
@@ -48,7 +50,7 @@ priorità e parallelismo a livello pagina.
 
 | Verifica | Esito |
 |---|---|
-| `pytest -q` | **50 passed** |
+| `pytest -q` | **58 passed** |
 | Import/avvio uvicorn | `health` 200, `engine_available` true |
 | Frontend | pagina `/` 200, meta popolato |
 | CLI | `--version`, `--list-engines`, `--list-pages`, end-to-end con motore fittizio |

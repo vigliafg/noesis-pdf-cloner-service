@@ -55,6 +55,7 @@ class Settings:
     max_queue_size: int = 100
     max_pages_per_block: int = 100  # blocco di pagine elaborato per volta
     max_pages_total: int = 5000  # limite complessivo di pagine per job
+    schedule_poll_seconds: int = 30  # frequenza del pianificatore (job notturno)
 
     # ── upload / sicurezza ──────────────────────────────────────────────
     max_upload_mb: int = 500
@@ -73,6 +74,10 @@ class Settings:
     llm_model: str = "inception/mercury-2.5"
     llm_base_url: str = "https://openrouter.ai/api/v1"
     engine_cache_version: str = "1"
+
+    # ── stima tempo/costo (0 = usa i default interni) ───────────────────
+    estimate_ms_per_page: dict = field(default_factory=dict)  # engine → ms
+    cost_cents_per_page: dict = field(default_factory=dict)  # engine → centesimi
 
     # ── seam commerciali (no-op ora) ────────────────────────────────────
     auth_mode: str = "none"  # none | proxy | jwt
@@ -147,6 +152,7 @@ class Settings:
             max_queue_size=_env_int("MAX_QUEUE_SIZE", 100),
             max_pages_per_block=_env_int("MAX_PAGES_PER_BLOCK", 100),
             max_pages_total=_env_int("MAX_PAGES_TOTAL", 5000),
+            schedule_poll_seconds=_env_int("SCHEDULE_POLL_SECONDS", 30),
             max_upload_mb=_env_int("MAX_UPLOAD_MB", 500),
             rate_limit_per_minute=_env_int("RATE_LIMIT_PER_MINUTE", 120),
             rate_limit_jobs_per_hour=_env_int("RATE_LIMIT_JOBS_PER_HOUR", 60),
@@ -159,6 +165,16 @@ class Settings:
             llm_model=_env_str("PDF_LLM_MODEL", "inception/mercury-2.5"),
             llm_base_url=_env_str("PDF_LLM_BASE_URL", "https://openrouter.ai/api/v1"),
             engine_cache_version=_env_str("ENGINE_CACHE_VERSION", "1"),
+            estimate_ms_per_page={
+                "google": _env_int("ESTIMATE_MS_PER_PAGE_GOOGLE", 0),
+                "bing": _env_int("ESTIMATE_MS_PER_PAGE_BING", 0),
+                "openai": _env_int("ESTIMATE_MS_PER_PAGE_OPENAI", 0),
+            },
+            cost_cents_per_page={
+                "google": _env_int("COST_CENTS_PER_PAGE_GOOGLE", 0),
+                "bing": _env_int("COST_CENTS_PER_PAGE_BING", 0),
+                "openai": _env_int("COST_CENTS_PER_PAGE_OPENAI", 0),
+            },
             auth_mode=_env_str("AUTH_MODE", "none"),
             trusted_proxy_headers=_env_bool("TRUSTED_PROXY_HEADERS", False),
             quota_enabled=_env_bool("QUOTA_ENABLED", False),

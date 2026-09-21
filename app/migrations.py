@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _TABLES = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     artifact_path  TEXT,
     owner_id       TEXT,
     created        TEXT NOT NULL,
+    scheduled_at   TEXT,
     started        TEXT,
     finished       TEXT,
     duration_ms    INTEGER
@@ -152,9 +153,19 @@ CREATE TABLE IF NOT EXISTS stripe_events (
 """
 
 
+def _ensure_column(
+    conn: sqlite3.Connection, table: str, column: str, ddl: str
+) -> None:
+    """Aggiunge una colonna se manca (migrazione idempotente per DB esistenti)."""
+    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
 def apply_migrations(conn: sqlite3.Connection) -> None:
     """Crea/aggiorna lo schema e registra la versione corrente."""
     conn.executescript(_TABLES)
+    _ensure_column(conn, "jobs", "scheduled_at", "TEXT")
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

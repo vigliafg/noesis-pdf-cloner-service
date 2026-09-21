@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
+from datetime import timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,16 +12,20 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from ... import audit
 from ...auth import Actor, authorize, get_current_actor
+from ...estimate import estimate_job
 from ...metrics import JOBS_SUBMITTED, METRICS
 from ...models import (
     ENGINES,
     LANGUAGES,
+    EstimateOut,
+    EstimateRequest,
     JobOut,
     JobRecord,
     JobRequest,
     JobState,
     JobSummary,
     RangeMode,
+    utcnow,
 )
 from ...pages import parse_pages
 from ...quota import check_quota
@@ -83,6 +88,15 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
     default_name = f"{sanitize_stem(Path(document.filename).stem, 'document')}_{payload.dst_lang}"
     output_name = sanitize_stem(payload.output_name or default_name, default_name)
 
+    # Avvio programmato (job notturno): se futuro resta "scheduled".
+    scheduled_at = payload.start_at
+    if scheduled_at is not None:
+        if scheduled_at.tzinfo is None:
+            scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+        if scheduled_at <= utcnow():
+            scheduled_at = None
+    state = JobState.scheduled if scheduled_at is not None else JobState.queued
+
     job = JobRecord(
         job_id=uuid.uuid4().hex,
         doc_id=document.doc_id,
@@ -92,24 +106,68 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
         engine=payload.engine,
         output_name=output_name,
         range_mode=payload.range_mode,
-        state=JobState.queued,
+        state=state,
         priority=max(0, min(int(payload.priority), 10)),
         pages_total=len(pages),
         owner_id=actor.id,
+        scheduled_at=scheduled_at,
     )
     ctx.storage.create_job(job)
-    try:
-        ctx.queue.submit(job.job_id, job.priority)
-    except RuntimeError as exc:
-        ctx.storage.update_job(job.job_id, state=JobState.error, error=str(exc))
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    if scheduled_at is None:
+        try:
+            ctx.queue.submit(job.job_id, job.priority)
+        except RuntimeError as exc:
+            ctx.storage.update_job(job.job_id, state=JobState.error, error=str(exc))
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
     METRICS.inc(JOBS_SUBMITTED)
     audit.record(
         ctx.storage, actor, "job.create", job.job_id,
-        {"pages": len(pages), "engine": job.engine},
+        {
+            "pages": len(pages),
+            "engine": job.engine,
+            "scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
+        },
     )
-    job.queue_position = ctx.queue_position(job.job_id)
+    if scheduled_at is None:
+        job.queue_position = ctx.queue_position(job.job_id)
     return job.to_out(download_url=None)
+
+
+@router.post("/estimate", response_model=EstimateOut)
+def estimate_job_route(
+    payload: EstimateRequest, request: Request, actor: Actor = Depends(get_current_actor)
+):
+    """Stima tempo/costo per una selezione, prima di avviare il job."""
+    ctx = get_ctx(request)
+    settings = ctx.settings
+    document = ctx.storage.get_document(payload.doc_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="documento non trovato")
+    authorize(actor, document.owner_id)
+    if payload.engine not in ENGINES:
+        raise HTTPException(status_code=400, detail=f"motore sconosciuto: {payload.engine}")
+    if payload.src_lang not in LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"lingua origine sconosciuta: {payload.src_lang}")
+    if payload.dst_lang not in LANGUAGES or payload.dst_lang == "auto":
+        raise HTTPException(status_code=400, detail=f"lingua destinazione sconosciuta: {payload.dst_lang}")
+    try:
+        pages = parse_pages(payload.pages, document.page_count)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if len(pages) > settings.max_pages_total:
+        raise HTTPException(
+            status_code=413,
+            detail=f"troppe pagine (max {settings.max_pages_total} per job)",
+        )
+    return estimate_job(
+        storage=ctx.storage,
+        settings=settings,
+        document=document,
+        pages=pages,
+        engine=payload.engine,
+        src_lang=payload.src_lang,
+        dst_lang=payload.dst_lang,
+    )
 
 
 @router.get("", response_model=list[JobSummary])

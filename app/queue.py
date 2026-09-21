@@ -15,7 +15,7 @@ from itertools import count
 
 from .config import Settings
 from .metrics import METRICS, QUEUE_LENGTH
-from .models import JobState
+from .models import JobState, utcnow
 from .storage import Storage
 
 log = logging.getLogger("noesis.queue")
@@ -111,6 +111,7 @@ class JobQueue:
         self.backend = backend or InMemoryQueueBackend()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        self._scheduler: threading.Thread | None = None
         self._cancelled: set[str] = set()
         self._cancel_lock = threading.Lock()
         self._cancel_events: dict[str, threading.Event] = {}
@@ -124,6 +125,10 @@ class JobQueue:
             )
             thread.start()
             self._threads.append(thread)
+        self._scheduler = threading.Thread(
+            target=self._scheduler_loop, name="noesis-scheduler", daemon=True
+        )
+        self._scheduler.start()
         self._update_gauge()
         log.info("coda avviata con %d worker", len(self._threads))
 
@@ -135,6 +140,9 @@ class JobQueue:
         for thread in self._threads:
             thread.join(timeout=timeout)
         self._threads.clear()
+        if self._scheduler is not None:
+            self._scheduler.join(timeout=timeout)
+            self._scheduler = None
 
     def _recover(self) -> None:
         """Ripristina lo stato dopo un riavvio: source of truth = SQLite."""
@@ -147,6 +155,28 @@ class JobQueue:
             log.warning("job %s riportato a interrupted", job.job_id)
         for job in self.storage.jobs_by_state(JobState.queued):
             self.backend.put(job.job_id, job.priority)
+        self._promote_scheduled()
+
+    def _promote_scheduled(self) -> int:
+        """Sposta in coda i job programmati la cui ora di avvio è arrivata."""
+        promoted = 0
+        for job in self.storage.due_scheduled_jobs(utcnow()):
+            self.storage.update_job(job.job_id, state=JobState.queued)
+            self.backend.put(job.job_id, job.priority)
+            promoted += 1
+        return promoted
+
+    def _scheduler_loop(self) -> None:
+        interval = max(5, self.settings.schedule_poll_seconds)
+        while not self._stop.is_set():
+            try:
+                promoted = self._promote_scheduled()
+                if promoted:
+                    log.info("promossi %d job programmati", promoted)
+                    self._update_gauge()
+            except Exception:  # pragma: no cover - difensivo
+                log.exception("errore nello scheduler dei job programmati")
+            self._stop.wait(interval)
 
     # ── API ──────────────────────────────────────────────────────────────
     def submit(self, job_id: str, priority: int = 0) -> None:
@@ -156,18 +186,25 @@ class JobQueue:
         self._update_gauge()
 
     def cancel(self, job_id: str) -> bool:
+        job = self.storage.get_job(job_id)
+        removed = self.backend.remove(job_id)
         with self._cancel_lock:
             self._cancelled.add(job_id)
             event = self._cancel_events.get(job_id)
-        removed = self.backend.remove(job_id)
         if event is not None:
             event.set()
-        if removed:
+        cancellable = job is not None and job.state in {
+            JobState.queued,
+            JobState.scheduled,
+        }
+        if cancellable:
             self.storage.update_job(
-                job_id, state=JobState.cancelled, error="annullato prima dell'esecuzione"
+                job_id,
+                state=JobState.cancelled,
+                error="annullato prima dell'esecuzione",
             )
         self._update_gauge()
-        return removed or event is not None
+        return removed or event is not None or cancellable
 
     def position(self, job_id: str) -> int | None:
         return self.backend.position(job_id)

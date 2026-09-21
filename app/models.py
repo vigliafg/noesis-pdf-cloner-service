@@ -37,6 +37,7 @@ LANGUAGES: dict[str, str] = {
 
 # Stati del ciclo di vita di un job.
 class JobState(str, Enum):
+    scheduled = "scheduled"
     queued = "queued"
     running = "running"
     done = "done"
@@ -71,6 +72,18 @@ class JobRequest(BaseModel):
     output_name: str | None = None
     range_mode: RangeMode = RangeMode.merged
     priority: int = 0
+    # Avvio programmato (job notturno): se futuro il job resta "scheduled".
+    start_at: datetime | None = None
+
+
+class EstimateRequest(BaseModel):
+    """Richiesta di stima (tempo/costo) per una selezione di pagine."""
+
+    doc_id: str = Field(min_length=1)
+    pages: str = "all"
+    src_lang: str = "auto"
+    dst_lang: str = "it"
+    engine: str = "google"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -111,6 +124,7 @@ class JobOut(BaseModel):
     error: str | None
     download_url: str | None
     created: datetime
+    scheduled_at: datetime | None = None
     started: datetime | None = None
     finished: datetime | None = None
     duration_ms: int | None = None
@@ -133,6 +147,21 @@ class MetaOut(BaseModel):
     languages: dict[str, str]
     limits: dict[str, Any]
     features: dict[str, Any]
+
+
+class EstimateOut(BaseModel):
+    doc_id: str
+    engine: str
+    src_lang: str
+    dst_lang: str
+    pages_total: int
+    pages_cached: int
+    pages_to_translate: int
+    ms_per_page: int
+    estimated_seconds: int
+    cost_cents: int
+    currency: str = "EUR"
+    note: str | None = None
 
 
 class HealthOut(BaseModel):
@@ -183,6 +212,7 @@ class JobRecord:
     artifact_path: str | None = None
     owner_id: str | None = None
     created: datetime = field(default_factory=utcnow)
+    scheduled_at: datetime | None = None
     started: datetime | None = None
     finished: datetime | None = None
     duration_ms: int | None = None
@@ -205,6 +235,7 @@ class JobRecord:
             error=self.error,
             download_url=download_url,
             created=self.created,
+            scheduled_at=self.scheduled_at,
             started=self.started,
             finished=self.finished,
             duration_ms=self.duration_ms,

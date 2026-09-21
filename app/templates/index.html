@@ -41,11 +41,15 @@
         <label>Nome del PDF finale
           <input type="text" id="output-name" placeholder="es. ha22_it">
         </label>
+        <label>Avvio programmato <span class="hint">(opzionale, per job notturni)</span>
+          <input type="datetime-local" id="start-at">
+        </label>
         <fieldset class="range-mode">
           <legend>Se è un intervallo di pagine</legend>
           <label class="inline"><input type="radio" name="range_mode" value="merged" checked> Un unico PDF</label>
           <label class="inline"><input type="radio" name="range_mode" value="single"> Pagine singole (ZIP)</label>
         </fieldset>
+        <div id="estimate" class="estimate hint"></div>
         <button type="submit" id="submit" class="primary" disabled>Avvia la traduzione</button>
       </form>
 

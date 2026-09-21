@@ -88,6 +88,10 @@ button, .primary, .danger {
 .hidden { display: none !important; }
 
 .preview { display: flex; gap: 14px; flex-wrap: wrap; }
+.estimate {
+  border: 1px dashed var(--line); border-radius: 10px;
+  padding: 9px 12px; font-size: 13px; color: var(--muted); min-height: 18px;
+}
 .thumb { text-align: center; }
 .thumb img {
   max-width: 170px; max-height: 230px; border: 1px solid var(--line);
