@@ -234,6 +234,20 @@ def test_scheduled_job_in_past_runs(client):
     assert job["state"] == "done"
 
 
+def test_estimate_llm_cost(client):
+    document = _upload(client, pages=2)
+    estimate = client.post(
+        "/api/v1/jobs/estimate",
+        json={
+            "doc_id": document["doc_id"], "pages": "1-2",
+            "dst_lang": "it", "engine": "openai",
+        },
+    ).json()
+    assert estimate["currency"] == "USD"
+    assert estimate["cost_cents"] > 0
+    assert "overhead" in estimate["note"]
+
+
 def test_meta_and_health(client):
     meta = client.get("/api/v1/meta").json()
     assert "google" in meta["engines"]

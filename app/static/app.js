@@ -165,7 +165,7 @@ async function refreshEstimate() {
     }
     const est = await response.json();
     const cost = est.cost_cents > 0
-      ? `${(est.cost_cents / 100).toFixed(2)} €`
+      ? `${(est.cost_cents / 100).toFixed(4)} ${est.currency}`
       : "gratis / non configurato";
     box.textContent =
       `Da tradurre: ${est.pages_to_translate} di ${est.pages_total} · ` +

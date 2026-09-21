@@ -159,7 +159,7 @@ class EstimateOut(BaseModel):
     pages_to_translate: int
     ms_per_page: int
     estimated_seconds: int
-    cost_cents: int
+    cost_cents: float
     currency: str = "EUR"
     note: str | None = None
 

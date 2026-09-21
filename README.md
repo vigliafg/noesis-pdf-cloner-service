@@ -115,6 +115,25 @@ curl -s -X POST http://127.0.0.1:18080/api/v1/jobs \
   -d '{"doc_id":"<doc_id>","pages":"1-120","engine":"google","start_at":"2026-09-21T23:00:00Z"}'
 ```
 
+## Stima del costo (motore LLM)
+
+Per il motore `openai` il costo è stimato dal testo sorgente con l'equazione
+**calibrata empiricamente** su una traduzione reale (Mercury-2.5, 15 pagine):
+
+```
+token_in  = (chars_sorgente / 4) * 13.3       # 13.3 = fattore overhead (prompt/chunk)
+token_out = token_in * 1.09                    # caratteri tradotti / sorgente
+costo_USD = token_in/1e6 * 0.04 + token_out/1e6 * 0.15
+
+# in forma compatta (per pagina):
+costo_USD_pagina ≈ 6.8e-7 * chars_sorgente      # ≈ 0.0054 $ per una pagina da ~8.000 char
+```
+
+Riferimento misurato: range 2656–2670 (15 pagine, ~7.924 char/pagina) → spend
+OpenRouter **$0.08057** totali, cioè **~$0.00537/pagina** (la stima "naive"
+senza overhead dava $0.00040, ~13× in meno). I parametri sono configurabili
+(`LLM_PRICE_*`, `LLM_OVERHEAD_FACTOR`, `LLM_OUTPUT_RATIO`, `CHARS_PER_TOKEN`).
+
 ## Configurazione (variabili d'ambiente)
 
 | Variabile | Default | Descrizione |
@@ -131,7 +150,13 @@ curl -s -X POST http://127.0.0.1:18080/api/v1/jobs \
 | `MAX_PAGES_TOTAL` | `5000` | pagine massime richiedibili in un job |
 | `SCHEDULE_POLL_SECONDS` | `30` | frequenza del pianificatore (job notturni) |
 | `ESTIMATE_MS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` | override stima ms/pagina (`0` = storico/default) |
-| `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` | costo per pagina in centesimi (0 = gratis) |
+| `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` | prezzo esplicito per pagina in centesimi (0 = usa il modello LLM sotto) |
+| `LLM_PRICE_PROMPT_PER_MTOK` | `0.04` | prezzo prompt LLM (USD per milione di token) |
+| `LLM_PRICE_COMPLETION_PER_MTOK` | `0.15` | prezzo completion LLM (USD per milione di token) |
+| `LLM_OVERHEAD_FACTOR` | `13.3` | fattore overhead dei prompt/chunk (calibrato) |
+| `LLM_OUTPUT_RATIO` | `1.09` | caratteri tradotti / caratteri sorgente |
+| `CHARS_PER_TOKEN` | `4.0` | caratteri per token |
+| `ESTIMATE_SAMPLE_PAGES` | `12` | pagine campionate per stimare i caratteri |
 | `JOB_RETENTION_HOURS` | `72` | retention di artefatti e log |
 | `DOCUMENT_RETENTION_HOURS` | `24` | retention dei documenti non usati |
 | `PDF2ZH_BIN` | auto | percorso dell'eseguibile `pdf2zh_next` |

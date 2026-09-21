@@ -35,6 +35,13 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass
 class Settings:
     """Impostazioni del servizio (immutabili per processo)."""
@@ -78,6 +85,16 @@ class Settings:
     # ── stima tempo/costo (0 = usa i default interni) ───────────────────
     estimate_ms_per_page: dict = field(default_factory=dict)  # engine → ms
     cost_cents_per_page: dict = field(default_factory=dict)  # engine → centesimi
+
+    # Modello di costo LLM (Mercury/OpenRouter), prezzi USD per milione di token.
+    # Il fattore di overhead cattura i prompt ripetuti per chunk da pdf2zh_next
+    # (calibrato empiricamente: vedi README "Stima del costo").
+    llm_price_prompt_per_mtok: float = 0.04
+    llm_price_completion_per_mtok: float = 0.15
+    llm_overhead_factor: float = 13.3
+    llm_output_ratio: float = 1.09  # caratteri tradotti / caratteri sorgente
+    chars_per_token: float = 4.0
+    estimate_sample_pages: int = 12
 
     # ── seam commerciali (no-op ora) ────────────────────────────────────
     auth_mode: str = "none"  # none | proxy | jwt
@@ -175,6 +192,12 @@ class Settings:
                 "bing": _env_int("COST_CENTS_PER_PAGE_BING", 0),
                 "openai": _env_int("COST_CENTS_PER_PAGE_OPENAI", 0),
             },
+            llm_price_prompt_per_mtok=_env_float("LLM_PRICE_PROMPT_PER_MTOK", 0.04),
+            llm_price_completion_per_mtok=_env_float("LLM_PRICE_COMPLETION_PER_MTOK", 0.15),
+            llm_overhead_factor=_env_float("LLM_OVERHEAD_FACTOR", 13.3),
+            llm_output_ratio=_env_float("LLM_OUTPUT_RATIO", 1.09),
+            chars_per_token=_env_float("CHARS_PER_TOKEN", 4.0),
+            estimate_sample_pages=_env_int("ESTIMATE_SAMPLE_PAGES", 12),
             auth_mode=_env_str("AUTH_MODE", "none"),
             trusted_proxy_headers=_env_bool("TRUSTED_PROXY_HEADERS", False),
             quota_enabled=_env_bool("QUOTA_ENABLED", False),

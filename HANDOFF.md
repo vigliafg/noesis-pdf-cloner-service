@@ -24,6 +24,8 @@ priorità e parallelismo a livello pagina.
 - CLI headless batch con `tqdm`.
 - **Libri interi a blocchi da 100**, **stima tempo/costo** (`POST /jobs/estimate`)
   e **job notturni** (`start_at`, stato `scheduled` promosso dallo scheduler).
+- **Modello di costo LLM calibrato**: `costo_USD ≈ 6.8e-7 × chars_sorgente`
+  (overhead 13.3×, prezzi Mercury-2.5 0.04/0.15 $/Mtok). Vedi README.
 - Retention (`janitor`), metriche Prometheus, seam per auth/quota/OCR/email/audit.
 
 ## 2. Scelte tecniche
@@ -50,7 +52,7 @@ priorità e parallelismo a livello pagina.
 
 | Verifica | Esito |
 |---|---|
-| `pytest -q` | **58 passed** |
+| `pytest -q` | **60 passed** |
 | Import/avvio uvicorn | `health` 200, `engine_available` true |
 | Frontend | pagina `/` 200, meta popolato |
 | CLI | `--version`, `--list-engines`, `--list-pages`, end-to-end con motore fittizio |
