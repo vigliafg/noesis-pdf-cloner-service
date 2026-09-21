@@ -1,0 +1,21 @@
+[Unit]
+Description=Noesis PDF Cloner Service — API
+After=network.target
+
+[Service]
+Type=simple
+User=noesis
+Group=noesis
+WorkingDirectory=/opt/noesis-pdf-cloner-service
+EnvironmentFile=/etc/noesis/noesis.env
+Environment=ROLE=api
+ExecStart=/opt/noesis-pdf-cloner-service/.venv/bin/python -m uvicorn app.main:app \
+    --workers 1 --host 0.0.0.0 --port 18080
+Restart=always
+RestartSec=3
+# Guardie risorse (opzionali)
+MemoryMax=1G
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -11,6 +11,7 @@ import abc
 import heapq
 import logging
 import threading
+import time
 from itertools import count
 
 from .config import Settings
@@ -95,6 +96,56 @@ class InMemoryQueueBackend(QueueBackend):
             return sum(1 for item in self._heap if item[2] not in self._removed)
 
 
+class DatabaseQueueBackend(QueueBackend):
+    """Coda persistente su SQLite: più processi possono reclamare i job.
+
+    È il backend predefinito: consente di eseguire **1 processo API + N worker**
+    sullo stesso VPS (o su più VPS con ``DATA_DIR`` condiviso) senza dipendenze
+    esterne. Il reclamo è atomico (``BEGIN IMMEDIATE`` + ``UPDATE`` condizionale).
+    """
+
+    def __init__(self, storage: Storage, poll_interval: float = 0.3) -> None:
+        self.storage = storage
+        self.poll_interval = poll_interval
+
+    def put(self, job_id: str, priority: int = 0) -> None:
+        job = self.storage.get_job(job_id)
+        if job is None or job.state is JobState.scheduled:
+            return
+        self.storage.update_job(job_id, state=JobState.queued, priority=int(priority))
+
+    def get(self, timeout: float | None = None) -> str | None:
+        limit = 1.0 if timeout is None else timeout
+        deadline = time.monotonic() + limit
+        while True:
+            job = self.storage.claim_next_job()
+            if job is not None:
+                return job.job_id
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(self.poll_interval)
+
+    def remove(self, job_id: str) -> bool:
+        job = self.storage.get_job(job_id)
+        if job is not None and job.state in {JobState.queued, JobState.scheduled}:
+            self.storage.request_cancel(job_id)
+            return True
+        return False
+
+    def position(self, job_id: str) -> int | None:
+        return self.storage.queue_position(job_id)
+
+    def qsize(self) -> int:
+        return self.storage.pending_count()
+
+
+def make_backend(settings: Settings, storage: Storage) -> QueueBackend:
+    """Backend in base a ``QUEUE_BACKEND`` (``db`` predefinito)."""
+    if settings.queue_backend == "memory":
+        return InMemoryQueueBackend()
+    return DatabaseQueueBackend(storage)
+
+
 class JobQueue:
     """Coda + pool di worker thread che eseguono i job."""
 
@@ -108,7 +159,7 @@ class JobQueue:
         self.storage = storage
         self.settings = settings
         self.runner = runner
-        self.backend = backend or InMemoryQueueBackend()
+        self.backend = backend or make_backend(settings, storage)
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._scheduler: threading.Thread | None = None
@@ -117,20 +168,29 @@ class JobQueue:
         self._cancel_events: dict[str, threading.Event] = {}
 
     # ── ciclo di vita ────────────────────────────────────────────────────
-    def start(self) -> None:
-        self._recover()
-        for index in range(max(1, self.settings.workers)):
-            thread = threading.Thread(
-                target=self._loop, name=f"noesis-worker-{index}", daemon=True
-            )
-            thread.start()
-            self._threads.append(thread)
+    def start(self, serve_workers: bool = True) -> None:
+        """Avvia lo scheduler e, se richiesto, i worker.
+
+        ``serve_workers=False`` (ruolo ``api``) avvia solo lo scheduler: i job
+        vengono accodati e reclamati dai processi worker.
+        """
+        if serve_workers:
+            self._recover()
+            for index in range(max(1, self.settings.workers)):
+                thread = threading.Thread(
+                    target=self._loop, name=f"noesis-worker-{index}", daemon=True
+                )
+                thread.start()
+                self._threads.append(thread)
         self._scheduler = threading.Thread(
             target=self._scheduler_loop, name="noesis-scheduler", daemon=True
         )
         self._scheduler.start()
         self._update_gauge()
-        log.info("coda avviata con %d worker", len(self._threads))
+        log.info(
+            "coda avviata: %d worker, backend %s",
+            len(self._threads), type(self.backend).__name__,
+        )
 
     def stop(self, timeout: float = 10.0) -> None:
         self._stop.set()
@@ -193,18 +253,13 @@ class JobQueue:
             event = self._cancel_events.get(job_id)
         if event is not None:
             event.set()
-        cancellable = job is not None and job.state in {
-            JobState.queued,
-            JobState.scheduled,
-        }
-        if cancellable:
-            self.storage.update_job(
-                job_id,
-                state=JobState.cancelled,
-                error="annullato prima dell'esecuzione",
-            )
+        # Annullamento cross-processo: il worker (anche di un altro processo)
+        # se ne accorge dal flag su DB e interrompe il subprocess.
+        self.storage.request_cancel(job_id)
         self._update_gauge()
-        return removed or event is not None or cancellable
+        return removed or event is not None or (
+            job is not None and job.state in {JobState.queued, JobState.scheduled}
+        )
 
     def position(self, job_id: str) -> int | None:
         return self.backend.position(job_id)
@@ -240,6 +295,11 @@ class JobQueue:
         job = self.storage.get_job(job_id)
         if job is None or job.state not in {JobState.queued, JobState.running}:
             return
+        stop = threading.Event()
+        watcher = threading.Thread(
+            target=self._watch_cancel, args=(job_id, cancel_event, stop), daemon=True
+        )
+        watcher.start()
         try:
             self.runner.run(job, cancel_event)
         except Exception:  # pragma: no cover - difensivo
@@ -247,6 +307,22 @@ class JobQueue:
             self.storage.update_job(
                 job_id, state=JobState.error, error="errore interno del worker"
             )
+        finally:
+            stop.set()
+            self.storage.clear_cancel(job_id)
+
+    def _watch_cancel(
+        self, job_id: str, cancel_event: threading.Event, stop: threading.Event
+    ) -> None:
+        """Sorveglia il flag di annullamento su DB (funziona tra processi)."""
+        while not stop.is_set():
+            try:
+                if self.storage.is_cancel_requested(job_id):
+                    cancel_event.set()
+                    return
+            except Exception:  # pragma: no cover
+                return
+            stop.wait(1.0)
 
     def _update_gauge(self) -> None:
         METRICS.set_gauge(QUEUE_LENGTH, self.backend.qsize())

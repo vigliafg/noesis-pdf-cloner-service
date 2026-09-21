@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _TABLES = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     owner_id       TEXT,
     created        TEXT NOT NULL,
     scheduled_at   TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
     started        TEXT,
     finished       TEXT,
     duration_ms    INTEGER
@@ -166,6 +167,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     """Crea/aggiorna lo schema e registra la versione corrente."""
     conn.executescript(_TABLES)
     _ensure_column(conn, "jobs", "scheduled_at", "TEXT")
+    _ensure_column(conn, "jobs", "cancel_requested", "INTEGER NOT NULL DEFAULT 0")
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

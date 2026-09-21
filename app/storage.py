@@ -223,6 +223,98 @@ class Storage:
             ).fetchall()
         return [self._row_to_job(r) for r in rows]
 
+    # ── coda su database (multi-processo) ────────────────────────────────
+    def claim_next_job(self) -> JobRecord | None:
+        """Reclama atomicamente il prossimo job in coda (sicuro tra processi)."""
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError:  # un altro writer è attivo
+                return None
+            try:
+                row = self._conn.execute(
+                    "SELECT job_id FROM jobs WHERE state=? "
+                    "ORDER BY priority DESC, created, job_id LIMIT 1",
+                    (JobState.queued.value,),
+                ).fetchone()
+                if row is None:
+                    self._conn.commit()
+                    return None
+                job_id = row["job_id"]
+                updated = self._conn.execute(
+                    "UPDATE jobs SET state=?, started=?, queue_position=NULL "
+                    "WHERE job_id=? AND state=?",
+                    (JobState.running.value, _iso(utcnow()), job_id, JobState.queued.value),
+                )
+                if updated.rowcount != 1:
+                    self._conn.rollback()
+                    return None
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            return self.get_job(job_id)
+
+    def pending_count(self) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM jobs WHERE state=?",
+                (JobState.queued.value,),
+            ).fetchone()
+        return int(row["n"] or 0)
+
+    def queue_position(self, job_id: str) -> int | None:
+        """Posizione (1-based) nella coda dei job in attesa."""
+        with self._lock:
+            job = self.get_job(job_id)
+            if job is None or job.state is not JobState.queued:
+                return None
+            row = self._conn.execute(
+                """SELECT COUNT(*) AS n FROM jobs
+                   WHERE state=? AND (
+                       priority > ? OR
+                       (priority = ? AND (created < ? OR (created = ? AND job_id < ?)))
+                   )""",
+                (
+                    JobState.queued.value, job.priority, job.priority,
+                    _iso(job.created), _iso(job.created), job.job_id,
+                ),
+            ).fetchone()
+        return int(row["n"] or 0) + 1
+
+    def request_cancel(self, job_id: str) -> bool:
+        """Segna il job come da annullare (funziona anche tra processi)."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE jobs SET cancel_requested=1 WHERE job_id=?", (job_id,)
+            )
+            self._conn.execute(
+                "UPDATE jobs SET state=?, error=? WHERE job_id=? AND state IN (?,?)",
+                (
+                    JobState.cancelled.value,
+                    "annullato prima dell'esecuzione",
+                    job_id,
+                    JobState.queued.value,
+                    JobState.scheduled.value,
+                ),
+            )
+            self._conn.commit()
+        return True
+
+    def is_cancel_requested(self, job_id: str) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT cancel_requested FROM jobs WHERE job_id=?", (job_id,)
+            ).fetchone()
+        return bool(row and row["cancel_requested"])
+
+    def clear_cancel(self, job_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE jobs SET cancel_requested=0 WHERE job_id=?", (job_id,)
+            )
+            self._conn.commit()
+
     def engine_speed(self, engine: str, min_pages: int = 3) -> tuple[int, int]:
         """Velocità media storica (ms/pagina, pagine campionate) per motore.
 

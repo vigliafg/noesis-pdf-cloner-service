@@ -45,6 +45,33 @@ class AppContext:
     def engine_available(self) -> bool:
         return find_pdf2zh_bin(self.settings.pdf2zh_bin) is not None
 
+    def start(self) -> None:
+        """Avvia i componenti in base al ruolo (``all``/``api``/``worker``)."""
+        serve_workers = self.settings.role in {"all", "worker"}
+        self.queue.start(serve_workers=serve_workers)
+        if serve_workers:
+            self.janitor.start()
+
+    def system_info(self) -> dict:
+        """Risorse rilevate, valori effettivi e consigliati."""
+        from .resources import compute_limits, detect
+
+        resources = detect(self.settings.data_dir)
+        return {
+            "role": self.settings.role,
+            "queue_backend": self.settings.queue_backend,
+            "resources": resources.to_dict(),
+            "recommended": compute_limits(resources, self.settings),
+            "effective": {
+                "workers": self.settings.workers,
+                "page_concurrency": self.settings.page_concurrency,
+                "max_engine_procs": self.settings.max_engine_procs,
+                "worker_count": self.settings.worker_count,
+            },
+            "queue_length": self.queue.qsize(),
+            "engine_available": self.engine_available(),
+        }
+
     def queue_position(self, job_id: str) -> int | None:
         return self.queue.position(job_id)
 

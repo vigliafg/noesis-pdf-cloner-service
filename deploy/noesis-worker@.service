@@ -1,0 +1,23 @@
+[Unit]
+Description=Noesis PDF Cloner Service — worker %i
+After=network.target
+
+[Service]
+Type=simple
+User=noesis
+Group=noesis
+WorkingDirectory=/opt/noesis-pdf-cloner-service
+EnvironmentFile=/etc/noesis/noesis.env
+Environment=ROLE=worker
+# WORKER_COUNT (numero totale di worker) arriva da /etc/noesis/noesis.env.
+ExecStart=/opt/noesis-pdf-cloner-service/.venv/bin/python -m app.worker_main
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+
+# Avvio di 4 worker (con WORKER_COUNT=4 in noesis.env):
+#   systemctl enable --now noesis-api
+#   systemctl enable --now noesis-worker@1 noesis-worker@2 noesis-worker@3 noesis-worker@4

@@ -265,6 +265,14 @@ def test_estimate_llm_cost_model(client, ctx):
     assert "overhead" in estimate["note"]
 
 
+def test_system_endpoint(client):
+    data = client.get("/api/v1/system").json()
+    assert "resources" in data and "effective" in data
+    assert data["role"] == "all"
+    assert data["effective"]["workers"] >= 1
+    assert data["queue_backend"] in {"db", "memory"}
+
+
 def test_meta_and_health(client):
     meta = client.get("/api/v1/meta").json()
     assert "google" in meta["engines"]

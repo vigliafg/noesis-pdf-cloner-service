@@ -25,7 +25,14 @@ def health(request: Request) -> HealthOut:
         engine_available=ctx.engine_available(),
         queue_length=ctx.queue.qsize(),
         workers=ctx.settings.workers,
+        role=ctx.settings.role,
     )
+
+
+@router.get("/system")
+def system(request: Request) -> dict:
+    """Risorse della macchina, valori effettivi/consigliati e stato coda."""
+    return get_ctx(request).system_info()
 
 
 @router.get("/metrics")

@@ -29,6 +29,7 @@ from ...models import (
 )
 from ...pages import parse_pages
 from ...quota import check_quota
+from ...resources import resource_status
 from ...security import sanitize_stem
 from ...sse import job_event_stream
 from .deps import get_ctx
@@ -63,6 +64,11 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
         )
     if ctx.queue.qsize() >= settings.max_queue_size:
         raise HTTPException(status_code=429, detail="coda piena, riprova più tardi")
+
+    # Guardia risorse: niente nuovi job se il disco/RAM è sotto soglia.
+    ok, reason, _ = resource_status(settings)
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"servizio sotto pressione: {reason}")
 
     document = ctx.storage.get_document(payload.doc_id)
     if document is None:

@@ -40,8 +40,7 @@ def create_app(
     async def lifespan(app: FastAPI):
         active = context or AppContext.build(settings)
         app.state.ctx = active
-        active.queue.start()
-        active.janitor.start()
+        active.start()
         try:
             yield
         finally:

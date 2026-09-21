@@ -54,11 +54,19 @@ class Settings:
     data_dir: Path = field(default_factory=lambda: _REPO_ROOT / "data")
     cache_root: Path | None = None  # None → data_dir/cache
 
-    # ── esecuzione job ──────────────────────────────────────────────────
-    workers: int = 0  # 0 → max(2, cpu)
-    page_concurrency: int = 3
-    max_engine_procs: int = 4
+    # ── esecuzione job (0 = autosizing) ─────────────────────────────────
+    workers: int = 0  # 0 → calcolato dalla macchina
+    page_concurrency: int = 0
+    max_engine_procs: int = 0
     page_timeout: int = 900  # secondi per pagina
+    autosize: bool = True
+    role: str = "all"  # all | api | worker
+    worker_count: int = 1  # numero di processi worker (per la divisione risorse)
+    queue_backend: str = "db"  # db | memory
+    engine_memory_mb: int = 800  # stima RAM per processo pdf2zh_next
+    min_free_disk_mb: int = 1024
+    min_free_ram_mb: int = 512
+    resources: dict = field(default_factory=dict)  # rilevate all'avvio
     max_queue_size: int = 100
     max_pages_per_block: int = 100  # blocco di pagine elaborato per volta
     max_pages_total: int = 5000  # limite complessivo di pagine per job
@@ -117,8 +125,6 @@ class Settings:
             self.cache_root = self.data_dir / "cache"
         else:
             self.cache_root = Path(self.cache_root)
-        if not self.workers:
-            self.workers = max(2, os.cpu_count() or 2)
 
     # ── percorsi derivati ───────────────────────────────────────────────
     @property
@@ -161,15 +167,22 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         cache_root = _env_str("CACHE_ROOT") or None
-        return cls(
+        settings = cls(
             host=_env_str("HOST", "127.0.0.1"),
             port=_env_int("PORT", 18080),
             data_dir=Path(_env_str("DATA_DIR", str(_REPO_ROOT / "data"))),
             cache_root=Path(cache_root) if cache_root else None,
             workers=_env_int("WORKERS", 0),
-            page_concurrency=_env_int("PAGE_CONCURRENCY", 3),
-            max_engine_procs=_env_int("MAX_ENGINE_PROCS", 4),
+            page_concurrency=_env_int("PAGE_CONCURRENCY", 0),
+            max_engine_procs=_env_int("MAX_ENGINE_PROCS", 0),
             page_timeout=_env_int("PAGE_TIMEOUT", 900),
+            autosize=_env_bool("AUTOSIZE", True),
+            role=_env_str("ROLE", "all"),
+            worker_count=_env_int("WORKER_COUNT", 1),
+            queue_backend=_env_str("QUEUE_BACKEND", "db"),
+            engine_memory_mb=_env_int("ENGINE_MEMORY_MB", 800),
+            min_free_disk_mb=_env_int("MIN_FREE_DISK_MB", 1024),
+            min_free_ram_mb=_env_int("MIN_FREE_RAM_MB", 512),
             max_queue_size=_env_int("MAX_QUEUE_SIZE", 100),
             max_pages_per_block=_env_int("MAX_PAGES_PER_BLOCK", 100),
             max_pages_total=_env_int("MAX_PAGES_TOTAL", 5000),
@@ -211,6 +224,10 @@ class Settings:
             stripe_secret_key=_env_str("STRIPE_SECRET_KEY"),
             stripe_webhook_secret=_env_str("STRIPE_WEBHOOK_SECRET"),
         )
+        from .resources import apply_autosize
+
+        apply_autosize(settings)
+        return settings
 
 
 @lru_cache(maxsize=1)

@@ -28,6 +28,10 @@ priorità e parallelismo a livello pagina.
   (overhead 13.3×, prezzi Mercury-2.5 0.04/0.15 $/Mtok). Vedi README.
 - **Prezzo commerciale di default: 1 centesimo/pagina** per il motore LLM
   (`COST_CENTS_PER_PAGE_OPENAI=1`, in EUR); google/bing restano gratuiti.
+- **Autosizing e scalabilità**: `resources.py` calcola worker/concorrenza/processi
+  dalla macchina; coda su **DB** (`QUEUE_BACKEND=db`) con ruoli `ROLE=api|worker`
+  e `WORKER_COUNT=N` (risorse divise tra i worker); guardie RAM/disco; endpoint
+  `GET /system`. Deploy systemd/nginx in `deploy/`.
 - Retention (`janitor`), metriche Prometheus, seam per auth/quota/OCR/email/audit.
 
 ## 2. Scelte tecniche
@@ -54,10 +58,11 @@ priorità e parallelismo a livello pagina.
 
 | Verifica | Esito |
 |---|---|
-| `pytest -q` | **60 passed** |
-| Import/avvio uvicorn | `health` 200, `engine_available` true |
+| `pytest -q` | **70 passed** |
+| Import/avvio uvicorn | `health` e `/system` 200, `engine_available` true |
 | Frontend | pagina `/` 200, meta popolato |
 | CLI | `--version`, `--list-engines`, `--list-pages`, end-to-end con motore fittizio |
+| Multi-processo | job accodato con `ROLE=api`, eseguito da `ROLE=worker` (coda su DB) |
 
 ## 4. Limiti noti / TODO
 
@@ -69,8 +74,9 @@ priorità e parallelismo a livello pagina.
 3. **OCR assente**: le scansioni senza testo non producono output; seam pronto.
 4. **PDF.js opzionale**: l'anteprima usa il server; per il rendering client
    locale va collocata la build in `app/static/vendor/pdfjs/`.
-5. **Singolo nodo**: la coda è in-process; per scalare serve un `QueueBackend`
-   esterno (Redis) e un rate limit condiviso.
+5. **Scalabilità**: coda su DB con ruoli `api`/`worker` (multi-processo sullo
+   stesso VPS). Per **più nodi** serve `DATA_DIR` condiviso; un backend Redis
+   resta l'evoluzione futura.
 6. **Auth/pagamenti**: da implementare sopra i seam (Supabase/OIDC/proxy;
    Stripe Checkout + webhook + quota su `usage`).
 
@@ -80,6 +86,8 @@ priorità e parallelismo a livello pagina.
 cd /home/vigliafg/Documenti/GitHub/noesis-pdf-cloner-service
 uv pip install --python .venv/bin/python -q -r requirements.txt pytest httpx
 .venv/bin/python -m pytest -q
-./run.sh          # server
+./run.sh                 # server (all: API + worker nello stesso processo)
+./run-api.sh             # solo API (ROLE=api)
+./run-worker.sh          # un processo worker (WORKER_COUNT=N)
 ./run-cli.sh --help
 ```

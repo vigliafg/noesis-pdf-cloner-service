@@ -170,6 +170,7 @@ class HealthOut(BaseModel):
     engine_available: bool
     queue_length: int
     workers: int
+    role: str = "all"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

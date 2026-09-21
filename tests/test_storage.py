@@ -73,6 +73,43 @@ def test_usage_and_audit(settings):
     storage.close()
 
 
+def test_claim_next_job_respects_priority(settings):
+    storage = Storage(settings)
+    storage.create_document(_document())
+    storage.create_job(JobRecord(job_id="low", doc_id="d1", pages=[0], priority=0))
+    storage.create_job(JobRecord(job_id="high", doc_id="d1", pages=[0], priority=5))
+    first = storage.claim_next_job()
+    assert first is not None and first.job_id == "high"
+    assert first.state is JobState.running
+    assert storage.claim_next_job().job_id == "low"
+    assert storage.claim_next_job() is None
+    storage.close()
+
+
+def test_pending_count_and_queue_position(settings):
+    storage = Storage(settings)
+    storage.create_document(_document())
+    storage.create_job(JobRecord(job_id="a", doc_id="d1", pages=[0]))
+    storage.create_job(JobRecord(job_id="b", doc_id="d1", pages=[0]))
+    assert storage.pending_count() == 2
+    assert storage.queue_position("a") == 1
+    assert storage.queue_position("b") == 2
+    storage.close()
+
+
+def test_request_cancel_marks_queued(settings):
+    storage = Storage(settings)
+    storage.create_document(_document())
+    storage.create_job(JobRecord(job_id="x", doc_id="d1", pages=[0]))
+    assert storage.is_cancel_requested("x") is False
+    storage.request_cancel("x")
+    assert storage.is_cancel_requested("x") is True
+    assert storage.get_job("x").state is JobState.cancelled
+    storage.clear_cancel("x")
+    assert storage.is_cancel_requested("x") is False
+    storage.close()
+
+
 def test_retention_queries(settings):
     storage = Storage(settings)
     document = _document()
