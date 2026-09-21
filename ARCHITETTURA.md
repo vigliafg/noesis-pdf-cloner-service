@@ -456,7 +456,7 @@ cent/pagina); le pagine in cache non si pagano.
   coda (priorità, claim, promozione job programmati, recovery), storage,
   sicurezza, autosizing, validazione, API end-to-end (upload/thumb/job/SSE/
   download/estimate/cancel) e CLI.
-- **Reali** (manuali, fuori suite): `ha22.pdf` con google/LLM, verifica layout,
+- **Reali** (manuali, fuori suite): `pdfs/ha22.pdf` con google/LLM, verifica layout,
   misura costi.
 - Totale attuale: **70 test**.
 

@@ -13,7 +13,7 @@ cache/
 logs/
 out/
 
-# PDF di test (copyright: non committare)
+# PDF di test (copyright e dimensioni: non committare) — vedi pdfs/README.md
 *.pdf
 !docs/**/*.pdf
 

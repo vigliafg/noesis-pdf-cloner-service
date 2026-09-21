@@ -87,17 +87,19 @@ condivisa su SQLite (`DATA_DIR` comune). File systemd/nginx in
 ### CLI headless (senza server)
 
 ```bash
-./run-cli.sh ha22.pdf -p 100-103 --src en --dst it --engine google \
+./run-cli.sh pdfs/ha22.pdf -p 100-103 --src en --dst it --engine google \
     --output ha22_it --range-mode merged
 
-./run-cli.sh report.pdf -p 3,5,10-12 --engine bing --dst it \
+./run-cli.sh pdfs/report.pdf -p 3,5,10-12 --engine bing --dst it \
     --output report_it --range-mode single --out-dir ./out
 
-./run-cli.sh *.pdf -p all --dst it --engine google --workers 2
+./run-cli.sh pdfs/*.pdf -p all --dst it --engine google --workers 2
 
-./run-cli.sh ha22.pdf --list-pages       # indice fisico → etichetta stampata
+./run-cli.sh pdfs/ha22.pdf --list-pages  # indice fisico → etichetta stampata
 ./run-cli.sh --check                     # verifica il motore
 ```
+
+I **PDF di test** stanno in `pdfs/` (non versionati: vedi `pdfs/README.md`).
 
 Opzioni principali: `-p/--pages` (`all`, `7`, `100-103`, `3,5,10-12`), `--src`,
 `--dst`, `--engine`, `-o/--output`, `--out-dir`, `--range-mode merged|single`,
@@ -114,7 +116,7 @@ Base: `/api/v1`. Esempi con `curl`:
 
 ```bash
 # 1) carica il PDF (ritorna doc_id, page_count, etichette)
-curl -s -F "file=@ha22.pdf" http://127.0.0.1:18080/api/v1/documents
+curl -s -F "file=@pdfs/ha22.pdf" http://127.0.0.1:18080/api/v1/documents
 
 # 2) anteprima di una pagina (PNG)
 curl -s "http://127.0.0.1:18080/api/v1/documents/<doc_id>/thumb?page=155&w=200" -o p156.png
