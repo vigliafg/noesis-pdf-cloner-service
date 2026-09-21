@@ -62,7 +62,8 @@ async function loadMeta() {
     dst.append(new Option(name, code));
   }
   for (const code of state.meta.engines) {
-    eng.append(new Option(code, code));
+    const label = (state.meta.engine_labels && state.meta.engine_labels[code]) || code;
+    eng.append(new Option(label, code));
   }
   src.value = "auto";
   dst.value = "it";
@@ -72,6 +73,10 @@ async function loadMeta() {
   $("service-meta").textContent =
     `${version} · blocchi da ${state.meta.limits.max_pages_per_block} pagine · ` +
     `max ${state.meta.limits.max_pages_total} pag/job`;
+}
+
+function engineLabel(code) {
+  return (state.meta && state.meta.engine_labels && state.meta.engine_labels[code]) || code;
 }
 
 /* ── upload ────────────────────────────────────────────────────────────── */
@@ -328,7 +333,7 @@ async function refreshHistory() {
   for (const job of jobs) {
     const item = document.createElement("li");
     const left = document.createElement("span");
-    left.textContent = `${job.output_name} · ${job.pages_done}/${job.pages_total} · ${job.engine}→${job.dst_lang}`;
+    left.textContent = `${job.output_name} · ${job.pages_done}/${job.pages_total} · ${engineLabel(job.engine)}→${job.dst_lang}`;
     const right = document.createElement("span");
     right.textContent = job.state;
     right.className = ["done"].includes(job.state) ? "s-ok" : ["error", "cancelled", "interrupted"].includes(job.state) ? "s-err" : "";

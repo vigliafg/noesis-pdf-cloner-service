@@ -13,8 +13,23 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-# Motori di traduzione disponibili (identici alla versione desktop).
-ENGINES: tuple[str, ...] = ("google", "bing", "openai")
+# Motori di traduzione disponibili.
+# ``llm`` è il traduttore LLM: usa il percorso "OpenAI-compatibile" di
+# pdf2zh_next (flag ``--openai``) puntato a OpenRouter (modello Mercury), NON
+# OpenAI. L'alias storico ``openai`` è accettato e normalizzato a ``llm``.
+ENGINES: tuple[str, ...] = ("google", "bing", "llm")
+ENGINE_ALIASES: dict[str, str] = {"openai": "llm"}
+ENGINE_LABELS: dict[str, str] = {
+    "google": "Google",
+    "bing": "Bing",
+    "llm": "LLM (OpenRouter)",
+}
+
+
+def normalize_engine(engine: str) -> str:
+    """Normalizza un id motore, accettando gli alias storici (``openai`` → ``llm``)."""
+    code = (engine or "").strip().lower()
+    return ENGINE_ALIASES.get(code, code)
 
 # Lingue di traduzione: codice → endonimo mostrato nella UI.
 LANGUAGES: dict[str, str] = {
@@ -144,6 +159,7 @@ class JobSummary(BaseModel):
 
 class MetaOut(BaseModel):
     engines: list[str]
+    engine_labels: dict[str, str]
     languages: dict[str, str]
     limits: dict[str, Any]
     features: dict[str, Any]

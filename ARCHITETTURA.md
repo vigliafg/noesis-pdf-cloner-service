@@ -37,7 +37,7 @@ Questo repository ne è la **versione server + CLI headless**, pensata per:
   senza implementarle ora.
 
 Requisiti funzionali principali: upload PDF → scelta pagina/pagine → lingua
-origine/destinazione → motore (`google`/`bing`/`openai`) → nome file finale →
+origine/destinazione → motore (`google`/`bing`/`llm`) → nome file finale →
 output **PDF unito** o **ZIP di pagine singole**; anteprima della pagina per
 evitare errori; log live.
 
@@ -280,7 +280,7 @@ vedono **numeri 1-based**; la conversione avviene in un solo punto.
   (pdf2zh ripete i prompt per chunk). Vedi §9.
 
 ### ADR-015 — Prezzo commerciale esplicito per pagina
-- **Decisione**: `COST_CENTS_PER_PAGE_OPENAI=1` (EUR) vince sull'equazione;
+- **Decisione**: `COST_CENTS_PER_PAGE_LLM=1` (EUR) vince sull'equazione;
   google/bing gratuiti.
 - **Perché**: separa **costo** (tecnico) da **prezzo** (business).
 

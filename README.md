@@ -12,7 +12,7 @@ Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-
 |---|---|
 | `google` | catena gratuita (`dict-chrome-ex` → `translate-pa` → `gtx` → Microsoft → LLM) |
 | `bing` | traduttore Bing built-in di pdf2zh_next |
-| `openai` | LLM via OpenRouter (`OPENROUTER_API_KEY`) |
+| `llm` | LLM via OpenRouter (`OPENROUTER_API_KEY`) — usa il percorso "OpenAI-compatibile" (`--openai`) di pdf2zh; alias storico `openai` |
 
 📐 **Documento tecnico delle scelte architetturali (implementate e future):
 [`ARCHITETTURA.md`](ARCHITETTURA.md).**
@@ -156,7 +156,7 @@ curl -s -X POST http://127.0.0.1:18080/api/v1/jobs \
 
 ## Stima del costo (motore LLM)
 
-Per il motore `openai` il costo è stimato dal testo sorgente con l'equazione
+Per il motore `llm` il costo è stimato dal testo sorgente con l'equazione
 **calibrata empiricamente** su una traduzione reale (Mercury-2.5, 15 pagine):
 
 ```
@@ -210,8 +210,8 @@ senza overhead dava $0.00040, ~13× in meno). I parametri sono configurabili
 | `MAX_PAGES_PER_BLOCK` | `100` | pagine elaborate per blocco (il job può coprire l'intero libro) |
 | `MAX_PAGES_TOTAL` | `5000` | pagine massime richiedibili in un job |
 | `SCHEDULE_POLL_SECONDS` | `30` | frequenza del pianificatore (job notturni) |
-| `ESTIMATE_MS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` | override stima ms/pagina (`0` = storico/default) |
-| `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_OPENAI` | `0` / `0` / `1` | prezzo per pagina in centesimi (LLM: 1 = commerciale; 0 = usa l'equazione) |
+| `ESTIMATE_MS_PER_PAGE_GOOGLE` / `_BING` / `_LLM` | `0` | override stima ms/pagina (`0` = storico/default; alias `_OPENAI`) |
+| `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_LLM` | `0` / `0` / `1` | prezzo per pagina in centesimi (LLM: 1 = commerciale; 0 = usa l'equazione; alias `_OPENAI`) |
 | `LLM_PRICE_PROMPT_PER_MTOK` | `0.04` | prezzo prompt LLM (USD per milione di token) |
 | `LLM_PRICE_COMPLETION_PER_MTOK` | `0.15` | prezzo completion LLM (USD per milione di token) |
 | `LLM_OVERHEAD_FACTOR` | `13.3` | fattore overhead dei prompt/chunk (calibrato) |
@@ -221,7 +221,7 @@ senza overhead dava $0.00040, ~13× in meno). I parametri sono configurabili
 | `JOB_RETENTION_HOURS` | `72` | retention di artefatti e log |
 | `DOCUMENT_RETENTION_HOURS` | `24` | retention dei documenti non usati |
 | `PDF2ZH_BIN` | auto | percorso dell'eseguibile `pdf2zh_next` |
-| `OPENROUTER_API_KEY` | — | necessaria per il motore `openai` |
+| `OPENROUTER_API_KEY` | — | necessaria per il motore `llm` |
 | `PDF_LLM_MODEL` / `PDF_LLM_BASE_URL` | `inception/mercury-2.5` / OpenRouter | modello LLM |
 | `AUTH_MODE` | `none` | seam auth: `none` \| `proxy` \| `jwt` |
 | `TRUSTED_PROXY_HEADERS` | `false` | fidati degli header del reverse proxy |

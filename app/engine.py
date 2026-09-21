@@ -13,7 +13,8 @@ Motori disponibili (identici al desktop):
 
 * ``google``  → catena gratuita ``gtranslate_cli.py`` via ``--clitranslator``
 * ``bing``    → traduttore Bing built-in di pdf2zh_next
-* ``openai``  → LLM via OpenRouter (``--openai``)
+* ``llm``     → LLM via OpenRouter (flag pdf2zh ``--openai``; modello Mercury).
+                 L'alias ``openai`` è accettato e normalizzato a ``llm``.
 """
 
 from __future__ import annotations
@@ -35,11 +36,12 @@ from pathlib import Path
 from typing import Iterator
 
 from .metrics import ENGINE_PROCS, METRICS
+from .models import normalize_engine
 from .pagelabels import build_page_labels
 
 log = logging.getLogger("noesis.engine")
 
-ENGINES: tuple[str, ...] = ("google", "bing", "openai")
+ENGINES: tuple[str, ...] = ("google", "bing", "llm")
 CACHE_SCHEMA_VERSION = "1"
 DEFAULT_MODEL = "inception/mercury-2.5"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
@@ -392,7 +394,7 @@ class CloneEngine:
 
     # ── traduzione ───────────────────────────────────────────────────────
     def _translator_flags(self, engine: str) -> tuple[list[str], str]:
-        if engine == "openai":
+        if normalize_engine(engine) == "llm":
             return (
                 [
                     "--openai",
@@ -492,6 +494,7 @@ class CloneEngine:
         cancel_event: threading.Event | None = None,
     ) -> Path:
         """Traduce una pagina (0-based) e ritorna il PDF tradotto in cache."""
+        engine = normalize_engine(engine)
         if engine not in ENGINES:
             engine = "google"
         out = self.translated_path_for(doc_key, page, engine, lang_in, lang_out)
@@ -503,7 +506,7 @@ class CloneEngine:
             raise EngineNotFoundError(
                 "pdf2zh_next non trovato: installa il motore (.venv2) o imposta PDF2ZH_BIN"
             )
-        if engine == "openai" and not (self.api_key or os.environ.get("OPENROUTER_API_KEY")):
+        if engine == "llm" and not (self.api_key or os.environ.get("OPENROUTER_API_KEY")):
             raise EngineError("OPENROUTER_API_KEY non impostata per il motore LLM")
 
         out.parent.mkdir(parents=True, exist_ok=True)

@@ -16,6 +16,7 @@ from ...estimate import estimate_job
 from ...metrics import JOBS_SUBMITTED, METRICS
 from ...models import (
     ENGINES,
+    ENGINE_LABELS,
     LANGUAGES,
     EstimateOut,
     EstimateRequest,
@@ -25,6 +26,7 @@ from ...models import (
     JobState,
     JobSummary,
     RangeMode,
+    normalize_engine,
     utcnow,
 )
 from ...pages import parse_pages
@@ -74,7 +76,8 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
     if document is None:
         raise HTTPException(status_code=404, detail="documento non trovato")
     authorize(actor, document.owner_id)
-    if payload.engine not in ENGINES:
+    engine = normalize_engine(payload.engine)
+    if engine not in ENGINES:
         raise HTTPException(status_code=400, detail=f"motore sconosciuto: {payload.engine}")
     if payload.src_lang not in LANGUAGES:
         raise HTTPException(status_code=400, detail=f"lingua origine sconosciuta: {payload.src_lang}")
@@ -109,7 +112,7 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
         pages=pages,
         src_lang=payload.src_lang,
         dst_lang=payload.dst_lang,
-        engine=payload.engine,
+        engine=engine,
         output_name=output_name,
         range_mode=payload.range_mode,
         state=state,
@@ -150,7 +153,8 @@ def estimate_job_route(
     if document is None:
         raise HTTPException(status_code=404, detail="documento non trovato")
     authorize(actor, document.owner_id)
-    if payload.engine not in ENGINES:
+    engine = normalize_engine(payload.engine)
+    if engine not in ENGINES:
         raise HTTPException(status_code=400, detail=f"motore sconosciuto: {payload.engine}")
     if payload.src_lang not in LANGUAGES:
         raise HTTPException(status_code=400, detail=f"lingua origine sconosciuta: {payload.src_lang}")
@@ -170,7 +174,7 @@ def estimate_job_route(
         settings=settings,
         document=document,
         pages=pages,
-        engine=payload.engine,
+        engine=engine,
         src_lang=payload.src_lang,
         dst_lang=payload.dst_lang,
     )

@@ -240,7 +240,7 @@ def test_estimate_llm_commercial_price(client):
         "/api/v1/jobs/estimate",
         json={
             "doc_id": document["doc_id"], "pages": "1-2",
-            "dst_lang": "it", "engine": "openai",
+            "dst_lang": "it", "engine": "llm",
         },
     ).json()
     # Prezzo commerciale di default: 1 centesimo/pagina (EUR).
@@ -257,7 +257,7 @@ def test_estimate_llm_cost_model(client, ctx):
         "/api/v1/jobs/estimate",
         json={
             "doc_id": document["doc_id"], "pages": "1-2",
-            "dst_lang": "it", "engine": "openai",
+            "dst_lang": "it", "engine": "llm",
         },
     ).json()
     assert estimate["currency"] == "USD"
@@ -271,6 +271,27 @@ def test_system_endpoint(client):
     assert data["role"] == "all"
     assert data["effective"]["workers"] >= 1
     assert data["queue_backend"] in {"db", "memory"}
+
+
+def test_engine_alias_openai_normalized(client):
+    """L'alias storico 'openai' viene normalizzato in 'llm'."""
+    document = _upload(client, pages=1)
+    estimate = client.post(
+        "/api/v1/jobs/estimate",
+        json={
+            "doc_id": document["doc_id"], "pages": "1",
+            "dst_lang": "it", "engine": "openai",
+        },
+    ).json()
+    assert estimate["engine"] == "llm"
+    job = client.post(
+        "/api/v1/jobs",
+        json={
+            "doc_id": document["doc_id"], "pages": "1",
+            "dst_lang": "it", "engine": "openai",
+        },
+    ).json()
+    assert job["engine"] == "llm"
 
 
 def test_meta_and_health(client):

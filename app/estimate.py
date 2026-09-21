@@ -10,7 +10,7 @@ Costo
 -----
 1. Se ``COST_CENTS_PER_PAGE_<MOTORE>`` è impostato, è usato come prezzo
    esplicito (es. prezzo commerciale) e vince su tutto.
-2. Altrimenti, per il motore ``openai`` (LLM), il costo è stimato dal testo
+2. Altrimenti, per il motore ``llm`` (LLM/OpenRouter), il costo è stimato dal testo
    sorgente con l'equazione calibrata::
 
        token_in  = (chars_sorgente / CHARS_PER_TOKEN) * LLM_OVERHEAD_FACTOR
@@ -27,14 +27,14 @@ from __future__ import annotations
 
 from .config import Settings
 from .engine import ENGINES, CloneEngine
-from .models import DocumentRecord, EstimateOut
+from .models import DocumentRecord, EstimateOut, normalize_engine
 from .storage import Storage
 
 # Stime di default (ms/pagina) quando non c'è storico sufficiente.
 DEFAULT_MS_PER_PAGE: dict[str, int] = {
     "google": 60_000,
     "bing": 50_000,
-    "openai": 70_000,
+    "llm": 70_000,
 }
 
 
@@ -84,6 +84,7 @@ def estimate_job(
     src_lang: str,
     dst_lang: str,
 ) -> EstimateOut:
+    engine = normalize_engine(engine)
     if engine not in ENGINES:
         engine = "google"
     cache = CloneEngine(
@@ -117,7 +118,7 @@ def estimate_job(
         # Prezzo esplicito per pagina (commerciale).
         cost_cents = float(to_translate * rate)
         notes.append(f"costo: {rate} cent/pagina configurato")
-    elif engine == "openai":
+    elif engine == "llm":
         currency = "USD"
         if to_translate == 0:
             cost_cents = 0.0

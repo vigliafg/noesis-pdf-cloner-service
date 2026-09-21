@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from ...models import ENGINES, LANGUAGES, MetaOut
+from ...models import ENGINES, ENGINE_LABELS, LANGUAGES, MetaOut
 from .deps import get_ctx
 
 router = APIRouter(tags=["meta"])
@@ -16,6 +16,7 @@ def get_meta(request: Request) -> MetaOut:
     settings = ctx.settings
     return MetaOut(
         engines=list(ENGINES),
+        engine_labels=ENGINE_LABELS,
         languages=LANGUAGES,
         limits={
             "max_upload_mb": settings.max_upload_mb,

@@ -27,7 +27,7 @@ priorità e parallelismo a livello pagina.
 - **Modello di costo LLM calibrato**: `costo_USD ≈ 6.8e-7 × chars_sorgente`
   (overhead 13.3×, prezzi Mercury-2.5 0.04/0.15 $/Mtok). Vedi README.
 - **Prezzo commerciale di default: 1 centesimo/pagina** per il motore LLM
-  (`COST_CENTS_PER_PAGE_OPENAI=1`, in EUR); google/bing restano gratuiti.
+  (`COST_CENTS_PER_PAGE_LLM=1`, in EUR); google/bing restano gratuiti.
 - **Autosizing e scalabilità**: `resources.py` calcola worker/concorrenza/processi
   dalla macchina; coda su **DB** (`QUEUE_BACKEND=db`) con ruoli `ROLE=api|worker`
   e `WORKER_COUNT=N` (risorse divise tra i worker); guardie RAM/disco; endpoint

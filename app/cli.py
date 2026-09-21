@@ -38,11 +38,13 @@ from .engine import (
 )
 from .logging_setup import configure_logging
 from .models import (
+    ENGINE_ALIASES,
     LANGUAGES,
     DocumentRecord,
     JobRecord,
     JobState,
     RangeMode,
+    normalize_engine,
     utcnow,
 )
 from .pages import format_pages_label, parse_pages
@@ -90,7 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--src", default="auto", help="lingua origine (default: auto)")
     parser.add_argument("--dst", default="it", help="lingua destinazione (default: it)")
-    parser.add_argument("--engine", default="google", choices=list(ENGINES))
+    parser.add_argument(
+        "--engine", default="google",
+        choices=list(ENGINES) + list(ENGINE_ALIASES),
+        help="motore: google | bing | llm (alias storico: openai)",
+    )
     parser.add_argument("-o", "--output", default=None, help="nome file di uscita (senza estensione)")
     parser.add_argument("--out-dir", type=Path, default=Path.cwd(), help="cartella di uscita")
     parser.add_argument(
@@ -269,6 +275,7 @@ def _handle_utility(args, settings: Settings) -> int | None:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.engine = normalize_engine(args.engine)
     configure_logging(logging.DEBUG if args.verbose else logging.INFO)
 
     if args.server or args.api_key:
