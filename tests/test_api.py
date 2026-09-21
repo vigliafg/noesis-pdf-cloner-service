@@ -57,6 +57,25 @@ def test_thumbnail(client):
     assert invalid.status_code == 400
 
 
+def test_thumbnail_width_cache(client):
+    """La larghezza fa parte della chiave di cache: w diverse => immagini diverse."""
+    import struct
+
+    document = _upload(client, pages=2)
+    small = client.get(
+        f"/api/v1/documents/{document['doc_id']}/thumb",
+        params={"page": 0, "w": 120},
+    )
+    large = client.get(
+        f"/api/v1/documents/{document['doc_id']}/thumb",
+        params={"page": 0, "w": 800},
+    )
+    assert small.status_code == 200 and large.status_code == 200
+    assert small.content != large.content
+    assert struct.unpack(">II", small.content[16:24])[0] == 120
+    assert struct.unpack(">II", large.content[16:24])[0] == 800
+
+
 def test_delete_document(client):
     document = _upload(client, pages=1)
     assert client.delete(f"/api/v1/documents/{document['doc_id']}").status_code == 204

@@ -448,8 +448,14 @@ class Storage:
     def thumb_dir(self, doc_key: str) -> Path:
         return self.settings.thumbs_dir / doc_key
 
-    def thumb_path(self, doc_key: str, page: int) -> Path:
-        return self.thumb_dir(doc_key) / f"page_{page:06d}.png"
+    def thumb_path(self, doc_key: str, page: int, width: int | None = None) -> Path:
+        """Percorso della miniatura cachata.
+
+        La larghezza fa parte della chiave: senza di essa una richiesta ``w=800``
+        riceverebbe la miniatura da 180px già cachata (sfocata).
+        """
+        name = f"page_{page:06d}.png" if width is None else f"page_{page:06d}_w{int(width):04d}.png"
+        return self.thumb_dir(doc_key) / name
 
     def artifact_dir(self, job_id: str) -> Path:
         return self.settings.artifacts_dir / job_id

@@ -135,7 +135,7 @@ def get_thumbnail(
     if page < 0 or page >= document.page_count:
         raise HTTPException(status_code=400, detail="pagina fuori intervallo")
     width = max(40, min(int(w), 800))
-    thumb = ctx.storage.thumb_path(document.sha256, page)
+    thumb = ctx.storage.thumb_path(document.sha256, page, width)
     if not thumb.is_file():
         try:
             data = CloneEngine.render_thumb(document.path, page, width=width)

@@ -22,7 +22,7 @@ const state = {
   orderKey: "",
   gridTimer: null,
   gridBusy: false,
-  drawer: { id: null, timer: null, source: null },
+  drawer: { id: null, docId: null, timer: null, source: null },
   wizard: { step: 0, rangeMode: "merged", startMode: "now" },
   search: "",
 };
@@ -596,22 +596,60 @@ async function gridTick() {
 
 async function openDrawer(jobId) {
   state.drawer.id = jobId;
+  state.drawer.docId = null;
+  setActivePageChip(null);
   $("drawer").classList.add("open");
   $("drawer-log").textContent = "";
   $("drawer-pages").textContent = "";
   $("drawer-pages-wrap").classList.add("hidden");
-  $("drawer-preview").classList.remove("failed");
-  $("drawer-cover").src = `${API}/jobs/${jobId}/cover`;
+  setDrawerImage(`${API}/jobs/${jobId}/cover`, null);
 
   openDrawerStream(jobId);
   scheduleDrawerTick();
 
   const job = await fetchJob(jobId);
   if (!job || state.drawer.id !== jobId) return;
+  state.drawer.docId = job.doc_id;
   renderDrawer(job);
   const doc = await fetchDocument(job.doc_id);
   if (state.drawer.id !== jobId) return;
   renderDrawerPages(job, doc);
+}
+
+/* La copertina mostra la prima pagina dell'intervallo; i chip permettono di
+ * scorrere le altre. Le anteprime sono pagine *originali*: il risultato
+ * tradotto resta il PDF/ZIP da scaricare. */
+
+function setDrawerImage(src, fallback, onFallback) {
+  const cover = $("drawer-cover");
+  const preview = $("drawer-preview");
+  preview.classList.remove("failed");
+  cover.onerror = () => {
+    cover.onerror = null;
+    if (fallback) {
+      cover.src = fallback;
+    } else {
+      preview.classList.add("failed");
+    }
+    if (onFallback) onFallback();
+  };
+  cover.src = src;
+}
+
+function setActivePageChip(chip) {
+  document.querySelectorAll("#drawer-pages .page-chip").forEach((c) => {
+    c.classList.toggle("active", c === chip);
+  });
+}
+
+function showDrawerPage(index, chip) {
+  const docId = state.drawer.docId;
+  const jobId = state.drawer.id;
+  if (!docId || !jobId) return;
+  const fallback = `${API}/jobs/${jobId}/cover`;
+  const thumb = `${API}/documents/${docId}/thumb?page=${index}&w=800`;
+  setDrawerImage(thumb, fallback, () => setActivePageChip(null));
+  setActivePageChip(chip);
 }
 
 function renderDrawerPages(job, doc) {
@@ -626,16 +664,28 @@ function renderDrawerPages(job, doc) {
   if (doc && Array.isArray(doc.pages)) {
     for (const page of doc.pages) labels.set(page.index, page.label);
   }
+  const available = !!doc;  // documento rimosso => niente anteprime
   const LIMIT = 60;
+  const chips = [];
   for (const index of indices.slice(0, LIMIT)) {
-    const chip = document.createElement("span");
-    chip.className = "page-chip";
     const physical = index + 1;
     const label = labels.get(index);
+    let chip;
+    if (available) {
+      chip = document.createElement("button");
+      chip.type = "button";
+      chip.title = `vedi la pagina ${physical} (originale, non tradotta)`;
+      chip.addEventListener("click", () => showDrawerPage(index, chip));
+    } else {
+      chip = document.createElement("span");
+      chip.title = "anteprima non disponibile: documento originale rimosso";
+    }
+    chip.className = "page-chip" + (available ? "" : " disabled");
     chip.textContent = label && label !== String(physical)
       ? `${physical} · «${label}»`
       : String(physical);
     box.append(chip);
+    chips.push(chip);
   }
   if (indices.length > LIMIT) {
     const more = document.createElement("span");
@@ -644,6 +694,7 @@ function renderDrawerPages(job, doc) {
     box.append(more);
   }
   $("drawer-pages-wrap").classList.remove("hidden");
+  setActivePageChip(chips[0] || null);
 }
 
 async function fetchDocument(docId) {
@@ -832,7 +883,6 @@ function bind() {
   // drawer
   $("drawer-close").addEventListener("click", closeDrawer);
   $("drawer-cancel").addEventListener("click", cancelDrawerJob);
-  $("drawer-cover").addEventListener("error", () => $("drawer-preview").classList.add("failed"));
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeWizard(); closeDrawer(); }
