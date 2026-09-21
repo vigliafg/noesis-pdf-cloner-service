@@ -9,8 +9,12 @@ Formato di ciascun intervallo (chiavi PyMuPDF/PDF spec):
 
 ``{"startpage": 0, "prefix": "", "style": "D", "firstpagenum": 1}``
 
-Stili: ``D`` decimale, ``R``/``r`` romano, ``A``/``a`` alfabetico, ``""``
-nessun numero (solo prefisso).
+Stili: ``D`` decimale, ``R``/``r`` romano, ``A``/``a`` alfabetico.
+
+**Attenzione**: ``style`` è opzionale nello standard. Se la chiave è **assente**
+non c'è parte numerica: l'etichetta è **solo il ``prefix``** (es. prefix "70" →
+label "70", non "701"). Alcuni PDF usano un intervallo per pagina con il numero
+stampato dentro ``prefix``.
 """
 
 from __future__ import annotations
@@ -84,7 +88,8 @@ def build_page_labels(spec: list[dict] | None, page_count: int) -> list[str]:
             else page_count - 1
         )
         end = min(max(end, start), page_count - 1)
-        style = str(entry.get("style", "D"))
+        # ``style`` è opzionale: se assente NON c'è parte numerica (solo prefisso).
+        style = str(entry.get("style", ""))
         prefix = str(entry.get("prefix", ""))
         first = int(entry.get("firstpagenum", 1))
         for page in range(start, end + 1):

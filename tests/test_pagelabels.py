@@ -33,6 +33,17 @@ def test_prefix_and_no_style():
     assert build_page_labels(spec, 3) == ["Cop", "A-1", "A-2"]
 
 
+def test_missing_style_means_prefix_only():
+    """Regressione (pa19): senza ``style`` l'etichetta è solo il prefisso."""
+    spec = [
+        {"startpage": 0, "prefix": "Cover", "firstpagenum": 1},
+        {"startpage": 1, "prefix": "i", "firstpagenum": 1},
+        {"startpage": 2, "prefix": "70", "firstpagenum": 1},
+        {"startpage": 3, "prefix": "71", "firstpagenum": 1},
+    ]
+    assert build_page_labels(spec, 4) == ["Cover", "i", "70", "71"]
+
+
 def test_uncovered_pages_use_physical():
     spec = [{"startpage": 2, "style": "D", "firstpagenum": 10}]
     assert build_page_labels(spec, 4) == ["1", "2", "10", "11"]
