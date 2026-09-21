@@ -74,6 +74,14 @@ esistono solo qui e non hanno controparte nel desktop.
 In caso di dubbio su cosa sia "funzionalità" e cosa sia "solo server",
 chiedere conferma prima di propagare.
 
+## Convenzione nomi degli output di test
+- Cartella **`out/`**, formato `<stem>_p<start>-<end>_<motore>.pdf`, dove
+  `<motore>` è **`google`** o **`llm`** (motore LLM/`openai`).
+  Es.: `out/ha22_p319-321_google.pdf`, `out/ha22_p319-321_llm.pdf`.
+- Il suffisso **`llm`** distingue la traduzione con motore LLM da quella con
+  `google`; non usare `_openai`.
+- `out/` non è versionata (vedi `.gitignore`).
+
 ## Documentazione
 - `README.md` — uso e API.
 - `ARCHITETTURA.md` — scelte architetturali (implementate e future), ADR, roadmap.
