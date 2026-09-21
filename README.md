@@ -1,0 +1,164 @@
+# noesis-pdf-cloner-service
+
+Servizio **server** e **CLI headless** della pipeline di
+[noesis-pdf-cloner](https://github.com/vigliafg/noesis-pdf-cloner): apre un PDF,
+traduce le pagine scelte **preservandone il layout** e le restituisce in un PDF
+unico o in pagine singole (ZIP).
+
+Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-next)**
+(typesetter BabelDOC) con i tre motori di traduzione:
+
+| Motore | Descrizione |
+|---|---|
+| `google` | catena gratuita (`dict-chrome-ex` → `translate-pa` → `gtx` → Microsoft → LLM) |
+| `bing` | traduttore Bing built-in di pdf2zh_next |
+| `openai` | LLM via OpenRouter (`OPENROUTER_API_KEY`) |
+
+## Caratteristiche
+
+- **Frontend web**: upload drag&drop, selezione pagine (singola / intervallo /
+  lista `3,5,10-12`), lingua origine e destinazione, motore, nome del PDF,
+  e per gli intervalli **PDF unico** oppure **ZIP di pagine singole**.
+- **Anteprima anti-errore**: miniatura della pagina (o della prima e ultima del
+  range) con **numero fisico + etichetta stampata** (`/PageLabels`), per non
+  confondere le due numerazioni dei PDF.
+- **Log di esecuzione** per ogni job (JSONL) e **streaming live via SSE**.
+- **Coda a priorità** e **multithreading**: pool di worker + parallelismo per
+  pagina + limite globale sui processi `pdf2zh_next`.
+- **CLI headless** con batch multi-PDF e barra `tqdm`, senza avviare il server.
+- **Cache condivisa e versionata** (server e CLI riusano le stesse traduzioni).
+- **Predisposto per il commerciale**: seam per autenticazione (Supabase/OIDC/
+  reverse proxy), quote/usage e pagamenti Stripe; tabelle DB già presenti.
+
+## Avvio rapido
+
+Serve **Python 3.12** e [uv](https://docs.astral.sh/uv/).
+
+```bash
+./setup_engine.sh     # crea .venv2 e installa pdf2zh_next (motore)
+./run.sh              # avvia il server su http://127.0.0.1:8000
+```
+
+Il server **deve** girare con un solo processo uvicorn (`run.sh` lo fa già):
+la coda e i semafori del motore sono in memoria; il parallelismo è interno.
+
+### CLI headless (senza server)
+
+```bash
+./run-cli.sh ha22.pdf -p 100-103 --src en --dst it --engine google \
+    --output ha22_it --range-mode merged
+
+./run-cli.sh report.pdf -p 3,5,10-12 --engine bing --dst it \
+    --output report_it --range-mode single --out-dir ./out
+
+./run-cli.sh *.pdf -p all --dst it --engine google --workers 2
+
+./run-cli.sh ha22.pdf --list-pages       # indice fisico → etichetta stampata
+./run-cli.sh --check                     # verifica il motore
+```
+
+Opzioni principali: `-p/--pages` (`all`, `7`, `100-103`, `3,5,10-12`), `--src`,
+`--dst`, `--engine`, `-o/--output`, `--out-dir`, `--range-mode merged|single`,
+`--pages-concurrency`, `--max-procs`, `--workers`, `--cache-dir`, `--force`,
+`--log-json`, `-v`, `--list-langs`, `--list-engines`, `--list-pages`.
+Exit code: `0` ok, `1` fallimenti parziali, `2` errore fatale.
+
+Installando il pacchetto (`pip install -e .`) è disponibile anche il comando
+`noesis-cloner`.
+
+## API
+
+Base: `/api/v1`. Esempi con `curl`:
+
+```bash
+# 1) carica il PDF (ritorna doc_id, page_count, etichette)
+curl -s -F "file=@ha22.pdf" http://127.0.0.1:8000/api/v1/documents
+
+# 2) anteprima di una pagina (PNG)
+curl -s "http://127.0.0.1:8000/api/v1/documents/<doc_id>/thumb?page=155&w=200" -o p156.png
+
+# 3) crea il job
+curl -s -X POST http://127.0.0.1:8000/api/v1/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"doc_id":"<doc_id>","pages":"156-159","src_lang":"en","dst_lang":"it",
+       "engine":"google","output_name":"ha22_it","range_mode":"merged"}'
+
+# 4) stato e log live
+curl -s http://127.0.0.1:8000/api/v1/jobs/<job_id>
+curl -N http://127.0.0.1:8000/api/v1/jobs/<job_id>/events
+
+# 5) download
+curl -sOJ http://127.0.0.1:8000/api/v1/jobs/<job_id>/download
+```
+
+Endpoint: `POST/GET/DELETE /documents`, `GET /documents/{id}/thumb`,
+`POST /jobs`, `GET /jobs`, `GET /jobs/{id}`, `GET /jobs/{id}/events`,
+`GET /jobs/{id}/download`, `POST /jobs/{id}/cancel`, `GET /meta`, `GET /health`,
+`GET /metrics`.
+
+## Configurazione (variabili d'ambiente)
+
+| Variabile | Default | Descrizione |
+|---|---|---|
+| `HOST` / `PORT` | `127.0.0.1` / `8000` | bind del server |
+| `DATA_DIR` | `./data` | dati (upload, DB, log, artefatti) |
+| `CACHE_ROOT` | `<DATA_DIR>/cache` | cache di split/traduzioni (condivisa con la CLI) |
+| `WORKERS` | `max(2, cpu)` | worker della coda |
+| `PAGE_CONCURRENCY` | `3` | pagine tradotte in parallelo per job |
+| `MAX_ENGINE_PROCS` | `4` | processi `pdf2zh_next` simultanei |
+| `MAX_UPLOAD_MB` | `200` | dimensione massima upload |
+| `MAX_QUEUE_SIZE` | `100` | job in coda prima di rispondere 429 |
+| `MAX_PAGES_PER_JOB` | `200` | pagine massime per job |
+| `JOB_RETENTION_HOURS` | `72` | retention di artefatti e log |
+| `DOCUMENT_RETENTION_HOURS` | `24` | retention dei documenti non usati |
+| `PDF2ZH_BIN` | auto | percorso dell'eseguibile `pdf2zh_next` |
+| `OPENROUTER_API_KEY` | — | necessaria per il motore `openai` |
+| `PDF_LLM_MODEL` / `PDF_LLM_BASE_URL` | `inception/mercury-2.5` / OpenRouter | modello LLM |
+| `AUTH_MODE` | `none` | seam auth: `none` \| `proxy` \| `jwt` |
+| `TRUSTED_PROXY_HEADERS` | `false` | fidati degli header del reverse proxy |
+| `QUOTA_ENABLED` / `FEATURE_OCR` / `FEATURE_PAYMENTS` | `false` | seam commerciali |
+| `RATE_LIMIT_PER_MINUTE` | `120` | rate limit per attore |
+
+## Test
+
+```bash
+.venv/bin/python -m pytest -q
+```
+
+I test usano un **motore fittizio** (nessuna rete, nessun `pdf2zh_next`).
+
+## Struttura
+
+```
+app/
+├── engine.py        split → pdf2zh_next → cache versionata (+ thumb/labels)
+├── pipeline.py      CUORE condiviso server/CLI
+├── cli.py           CLI headless (tqdm, batch)
+├── queue.py         coda a priorità + worker (backend astratto)
+├── worker.py        runner del server
+├── storage.py       SQLite + percorsi filesystem
+├── models.py        modelli API/persistenza
+├── pages.py         parsing specifica pagine
+├── pagelabels.py    espansione /PageLabels
+├── auth.py          seam identità (anonimo ora)
+├── quota.py         seam quota/usage
+├── ocr.py           seam OCR
+├── sse.py           streaming SSE
+├── janitor.py       retention
+├── metrics.py       metriche Prometheus
+├── api/v1/          route versionate
+├── templates/ static/  frontend
+└── gtranslate_cli.py   catena gratuita per l'engine google
+```
+
+## Note e limiti
+
+- **Un solo processo uvicorn**: la coda è in memoria (recuperata da SQLite al
+  riavvio). Per scalare su più nodi la coda è dietro `QueueBackend`.
+- **Motore e licenze**: `pdf2zh_next`/BabelDOC sono copyleft (AGPL, da
+  verificare) e la catena Google usa endpoint non ufficiali. Prima di un uso
+  commerciale valutare licenze e termini d'uso (vedi `HANDOFF.md`).
+- **OCR**: le pagine scansionate senza testo non producono output; il seam OCR
+  (`FEATURE_OCR`) le segnala nel log.
+- Il frontend funziona anche senza PDF.js (anteprima via server); PDF.js locale
+  è opzionale (`app/static/vendor/pdfjs/`).

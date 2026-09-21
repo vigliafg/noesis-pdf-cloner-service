@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Noesis PDF Cloner — Service</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🧬 Noesis PDF Cloner <span class="tag">service</span></div>
+    <div class="meta" id="service-meta">v{{ version }}</div>
+  </header>
+
+  <main class="layout">
+    <!-- ── Colonna sinistra: upload + parametri ── -->
+    <section class="card">
+      <h2>1 · Carica il PDF</h2>
+      <div id="dropzone" class="dropzone">
+        <input type="file" id="file-input" accept="application/pdf" hidden>
+        <p><strong>Trascina qui un PDF</strong> oppure <button type="button" id="browse" class="link">scegli un file</button></p>
+        <p class="hint" id="upload-status">Nessun file caricato</p>
+      </div>
+
+      <h2>2 · Parametri</h2>
+      <form id="job-form" class="form" autocomplete="off">
+        <label>Pagine
+          <input type="text" id="pages" value="all" placeholder="all · 7 · 100-103 · 3,5,10-12">
+        </label>
+        <div class="grid2">
+          <label>Lingua origine
+            <select id="src-lang"></select>
+          </label>
+          <label>Lingua destinazione
+            <select id="dst-lang"></select>
+          </label>
+        </div>
+        <label>Motore
+          <select id="engine"></select>
+        </label>
+        <label>Nome del PDF finale
+          <input type="text" id="output-name" placeholder="es. ha22_it">
+        </label>
+        <fieldset class="range-mode">
+          <legend>Se è un intervallo di pagine</legend>
+          <label class="inline"><input type="radio" name="range_mode" value="merged" checked> Un unico PDF</label>
+          <label class="inline"><input type="radio" name="range_mode" value="single"> Pagine singole (ZIP)</label>
+        </fieldset>
+        <button type="submit" id="submit" class="primary" disabled>Avvia la traduzione</button>
+      </form>
+
+      <h2>Anteprima</h2>
+      <div id="preview" class="preview">
+        <p class="hint">Carica un PDF per vedere la miniatura della pagina (o della prima e ultima del range).</p>
+      </div>
+    </section>
+
+    <!-- ── Colonna destra: stato + log + risultato ── -->
+    <section class="card">
+      <h2>3 · Esecuzione</h2>
+      <div class="statusbar">
+        <span id="job-state" class="badge idle">in attesa</span>
+        <span id="queue-pos" class="hint"></span>
+      </div>
+      <div class="progress"><div id="progress-fill" class="progress-fill"></div></div>
+      <div class="counters">
+        <span id="counter-pages">0 / 0 pagine</span>
+        <span id="counter-eta" class="hint"></span>
+      </div>
+      <div class="actions">
+        <button id="cancel" class="danger" disabled>Annulla</button>
+        <a id="download" class="primary hidden" href="#">⬇ Scarica</a>
+      </div>
+
+      <h2>Log di esecuzione</h2>
+      <pre id="log" class="log" aria-live="polite"></pre>
+
+      <h2>Storico</h2>
+      <ul id="history" class="history"></ul>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

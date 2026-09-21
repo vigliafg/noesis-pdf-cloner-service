@@ -1,0 +1,22 @@
+.venv/
+.venv2/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# dati runtime: upload, cache, artefatti, log, thumbnail, DB
+data/
+cache/
+logs/
+
+# PDF di test (copyright: non committare)
+*.pdf
+!docs/**/*.pdf
+
+# build
+build/
+dist/
+*.egg-info/

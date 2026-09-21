@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "noesis-pdf-cloner-service"
+version = "0.1.0"
+description = "Server + CLI headless della pipeline noesis-pdf-cloner (traduzione PDF con layout preservato)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.7",
+    "pymupdf>=1.24",
+    "tqdm>=4.66",
+]
+
+[project.scripts]
+noesis-cloner = "app.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.27"]
+
+[tool.setuptools]
+packages = ["app", "app.api", "app.api.v1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

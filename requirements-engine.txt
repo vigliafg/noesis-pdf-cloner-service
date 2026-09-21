@@ -1,0 +1,4 @@
+# ── Motore di clonazione (venv .venv2, Python 3.12) ────────────────────────
+# pdf2zh_next v2 (PDFMathTranslate/BabelDOC): traduzione + typesetting.
+# Richiede Python < 3.14. Installato da setup_engine.sh / run.sh.
+pdf2zh_next>=2.0

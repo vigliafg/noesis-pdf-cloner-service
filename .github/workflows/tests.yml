@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installa uv
+        uses: astral-sh/setup-uv@v5
+      - name: Crea venv e installa le dipendenze
+        run: |
+          uv venv --python python3.12 .venv
+          uv pip install --python .venv/bin/python -q -r requirements.txt pytest httpx
+      - name: Test
+        run: .venv/bin/python -m pytest -q

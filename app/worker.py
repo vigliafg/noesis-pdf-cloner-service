@@ -1,0 +1,74 @@
+"""Worker del server: costruisce l'engine per il job ed esegue la pipeline."""
+
+from __future__ import annotations
+
+import logging
+import threading
+
+from .config import Settings
+from .engine import CloneEngine
+from .logging_setup import JobLogger
+from .metrics import (
+    JOBS_CANCELLED,
+    JOBS_DONE,
+    JOBS_FAILED,
+    METRICS,
+    PAGES_FAILED,
+    PAGES_TRANSLATED,
+)
+from .models import JobRecord, JobState
+from .pipeline import run_job
+from .storage import Storage
+
+log = logging.getLogger("noesis.worker")
+
+
+class JobRunner:
+    """Esegue un singolo job tramite la pipeline condivisa."""
+
+    def __init__(self, storage: Storage, settings: Settings) -> None:
+        self.storage = storage
+        self.settings = settings
+
+    def engine_for(self, job: JobRecord) -> CloneEngine:
+        return CloneEngine(
+            self.settings.cache_root,
+            pdf2zh_bin=self.settings.pdf2zh_bin,
+            max_engine_procs=self.settings.max_engine_procs,
+            page_timeout=self.settings.page_timeout,
+            cache_version=self.settings.engine_cache_version,
+            llm_model=self.settings.llm_model,
+            llm_base_url=self.settings.llm_base_url,
+            api_key=self.settings.openrouter_api_key,
+        )
+
+    def run(self, job: JobRecord, cancel_event: threading.Event):
+        logger = JobLogger(self.storage, job.job_id)
+        engine = self.engine_for(job)
+
+        def on_page_done(done: int, total: int, page: int, ok: bool) -> None:
+            if ok:
+                METRICS.inc(PAGES_TRANSLATED)
+            else:
+                METRICS.inc(PAGES_FAILED)
+
+        result = run_job(
+            storage=self.storage,
+            engine=engine,
+            job=job,
+            settings=self.settings,
+            logger=logger,
+            on_page_done=on_page_done,
+            cancel_event=cancel_event,
+        )
+        if result.cancelled:
+            METRICS.inc(JOBS_CANCELLED)
+        elif result.artifact_path:
+            METRICS.inc(JOBS_DONE)
+        else:
+            METRICS.inc(JOBS_FAILED)
+        log.info(
+            "job %s concluso: %d ok / %d fallite",
+            job.job_id, result.pages_done, result.pages_failed,
+        )
+        return result
