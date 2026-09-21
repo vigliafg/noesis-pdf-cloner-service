@@ -14,6 +14,46 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+/* ── persistenza job (localStorage) ────────────────────────────────────── *
+ * L'elenco dei jobId resta nel browser anche chiudendolo: all'avvio si
+ * ricontrolla lo stato server-side e si riaggancia l'ultimo job non finito.
+ * Il server non notifica nulla: il job continua comunque lato worker.
+ */
+
+const JOB_IDS_KEY = "noesis_job_ids";
+const JOB_IDS_MAX = 20;
+const ACTIVE_STATES = ["queued", "running", "scheduled"];
+
+function loadJobIds() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(JOB_IDS_KEY) || "[]");
+    return Array.isArray(raw)
+      ? [...new Set(raw.filter((id) => typeof id === "string" && id))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveJobIds(ids) {
+  try {
+    const clean = [...new Set(ids.filter((id) => typeof id === "string" && id))];
+    localStorage.setItem(JOB_IDS_KEY, JSON.stringify(clean.slice(0, JOB_IDS_MAX)));
+  } catch { /* storage non disponibile */ }
+}
+
+function addJobId(jobId) {
+  saveJobIds([jobId, ...loadJobIds().filter((id) => id !== jobId)]);
+}
+
+function removeJobId(jobId) {
+  saveJobIds(loadJobIds().filter((id) => id !== jobId));
+}
+
+function isActiveJob(job) {
+  return ACTIVE_STATES.includes(job.state);
+}
+
 /* ── utilità ───────────────────────────────────────────────────────────── */
 
 function parsePages(spec, pageCount) {
@@ -235,6 +275,7 @@ async function submitJob(event) {
     return;
   }
   state.job = await response.json();
+  addJobId(state.job.job_id);
   appendLog(`job ${state.job.job_id.slice(0, 8)} accodato (${state.job.pages_total} pagine, ${engineLabel(state.job.engine)})`);
   if (logCollapsed) setLogCollapsed(false);  // mostra subito il log del nuovo job
   $("cancel").disabled = false;
@@ -287,6 +328,45 @@ function startPolling(jobId) {
 function stopPolling() {
   if (state.pollTimer) clearTimeout(state.pollTimer);
   state.pollTimer = null;
+}
+
+/* ── riaggancio job (persistenza localStorage) ─────────────────────────── */
+
+async function fetchJob(jobId) {
+  try {
+    const response = await fetch(`${API}/jobs/${jobId}`);
+    if (response.status === 404) { removeJobId(jobId); return null; }
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;  // rete assente: non tocco lo storage, ritento al prossimo avvio
+  }
+}
+
+function attachJob(job) {
+  state.job = job;
+  stopPolling();
+  if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
+  renderJob(job);
+  $("cancel").disabled = !isActiveJob(job);
+  if (isActiveJob(job)) startPolling(job.job_id);
+}
+
+async function restoreJobs() {
+  const ids = loadJobIds();
+  if (!ids.length) return;
+  let chosen = null;
+  for (const id of ids) {
+    const job = await fetchJob(id);
+    if (job && !chosen) chosen = job;  // ids in ordine recente-primo
+  }
+  if (!chosen) return;
+  attachJob(chosen);
+  appendLog(
+    isActiveJob(chosen)
+      ? `job ${chosen.job_id.slice(0, 8)} ripreso (${chosen.state})`
+      : `job ${chosen.job_id.slice(0, 8)}: ${chosen.state}`
+  );
 }
 
 function renderJob(job) {
@@ -353,10 +433,21 @@ function resetJobView() {
 
 async function refreshHistory() {
   const jobs = await (await fetch(`${API}/jobs?limit=10`)).json();
+  const mine = new Set(loadJobIds());
   const list = $("history");
   list.textContent = "";
   for (const job of jobs) {
     const item = document.createElement("li");
+    if (mine.has(job.job_id)) item.classList.add("mine");
+    item.tabIndex = 0;
+    item.title = "apri questo job";
+    item.onclick = () => openHistoryJob(job.job_id);
+    item.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openHistoryJob(job.job_id);
+      }
+    };
     const left = document.createElement("span");
     left.textContent = `${job.output_name} · ${job.pages_done}/${job.pages_total} · ${engineLabel(job.engine)}→${job.dst_lang}`;
     const right = document.createElement("span");
@@ -365,6 +456,13 @@ async function refreshHistory() {
     item.append(left, right);
     list.append(item);
   }
+}
+
+async function openHistoryJob(jobId) {
+  const job = await fetchJob(jobId);
+  if (!job) return;
+  attachJob(job);
+  if (loadJobIds().includes(jobId)) addJobId(jobId);  // aggiorna la recenza
 }
 
 /* ── init ──────────────────────────────────────────────────────────────── */
@@ -404,6 +502,7 @@ function bind() {
   try {
     await loadMeta();
     await refreshHistory();
+    await restoreJobs();
   } catch (error) {
     appendLog(`impossibile contattare il servizio: ${error}`);
   }

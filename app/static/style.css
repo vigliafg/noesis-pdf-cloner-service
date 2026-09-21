@@ -158,6 +158,9 @@ button, .primary, .danger {
   display: flex; justify-content: space-between; gap: 10px;
   padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px;
   font-size: 13px; background: var(--panel-2);
+  cursor: pointer; transition: border-color .15s, background .15s;
 }
+.history li:hover, .history li:focus-visible { border-color: var(--accent-2); outline: none; }
+.history li.mine { border-left: 3px solid var(--accent-2); }
 .history .s-ok { color: var(--accent-2); }
 .history .s-err { color: var(--danger); }
