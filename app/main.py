@@ -1,8 +1,11 @@
 """Applicazione FastAPI: API v1, frontend e ciclo di vita di coda/janitor.
 
-Nota importante: il servizio va eseguito con **un solo processo uvicorn**
-(``--workers 1``): la coda è in memoria e i semafori del motore sono per
-processo. Il parallelismo è interno (thread), non a livello di processo.
+Il ruolo è scelto con ``ROLE``: ``all`` (API + worker nello stesso processo),
+``api`` (solo API) o ``worker`` (solo consumo della coda). Con il backend di
+coda su SQLite (``QUEUE_BACKEND=db``, predefinito) si possono eseguire 1
+processo API + N worker; i semafori del motore restano per processo. Nel
+processo con ``ROLE=all`` coda e semafori sono locali, quindi va eseguito con
+**un solo processo uvicorn** (``--workers 1``, come in ``run.sh``).
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """Persistenza: repository SQLite + percorsi del filesystem.
 
-``Storage`` è la fonte di verità dei job (durabilità: la coda in memoria si
+``Storage`` è la fonte di verità dei job (la coda — su DB o in memoria — si
 appoggia a questa) e gestisce anche le posizioni dei file (documenti, thumbnail,
 artefatti, log). È pensato per essere sostituito in futuro da un repository
 Postgres/S3 senza toccare il resto del codice.

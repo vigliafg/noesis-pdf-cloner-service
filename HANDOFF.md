@@ -1,6 +1,6 @@
 # Handoff — noesis-pdf-cloner-service
 
-*Data: 2026-09-21 · Versione 0.1.0 · Repository pubblico:
+*Data: 2026-09-22 · Versione 0.1.0 · Repository pubblico:
 `git@github.com:vigliafg/noesis-pdf-cloner-service.git` (SSH, branch `main`).*
 
 Servizio **server + CLI headless** derivato da `noesis-pdf-cloner`: traduce PDF
@@ -11,7 +11,7 @@ priorità e parallelismo a livello pagina.
 
 ## 1. Stato
 
-**Implementato e testato** (50 test, motore fittizio, nessuna rete):
+**Implementato e testato** (76 test, motore fittizio, nessuna rete):
 
 - Pipeline condivisa `engine.py` + `pipeline.py` (server e CLI).
 - Frontend web (Jinja2 + JS vanilla + SSE) con **anteprima anti-errore**
@@ -38,10 +38,12 @@ priorità e parallelismo a livello pagina.
 
 1. **Una pipeline, due frontend**: `pipeline.run_job` è usato da `worker.py`
    (server) e da `cli.py`. Nessuna dipendenza FastAPI nella pipeline.
-2. **SQLite = fonte di verità**: la coda in memoria si ricostruisce all'avvio
+2. **SQLite = fonte di verità**: la coda si ricostruisce all'avvio dal DB
    (`running → interrupted`, `queued → ri-accodati`).
-3. **Un solo processo uvicorn** (`--workers 1`): coda e semafori sono in
-   memoria; il parallelismo è a thread. `QueueBackend` è astratto per un
+3. **Coda su DB, ruoli separabili**: il backend predefinito è SQLite
+   (`QUEUE_BACKEND=db`) con claim atomico, quindi si possono eseguire 1 processo
+   API + N worker (`ROLE=api|worker`, `WORKER_COUNT=N`); `QUEUE_BACKEND=memory`
+   resta disponibile per il single-process. `QueueBackend` è astratto per un
    futuro Redis/Celery.
 4. **Due livelli di parallelismo**: `ThreadPoolExecutor` per pagina
    (`PAGE_CONCURRENCY`) + `Semaphore` sui processi `pdf2zh_next`
@@ -58,7 +60,7 @@ priorità e parallelismo a livello pagina.
 
 | Verifica | Esito |
 |---|---|
-| `pytest -q` | **70 passed** |
+| `pytest -q` | **76 passed** |
 | Import/avvio uvicorn | `health` e `/system` 200, `engine_available` true |
 | Frontend | pagina `/` 200, meta popolato |
 | CLI | `--version`, `--list-engines`, `--list-pages`, end-to-end con motore fittizio |

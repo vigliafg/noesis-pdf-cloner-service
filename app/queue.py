@@ -1,8 +1,10 @@
-"""Coda dei job: backend astratto + implementazione in-memory a priorità.
+"""Coda dei job: backend astratto + implementazioni DB e in-memory.
 
-Oggi la coda vive in memoria (single-process), ma è dietro l'interfaccia
-``QueueBackend`` così in futuro si potrà usare Redis/Celery senza toccare
-pipeline o API. La fonte di verità resta SQLite: all'avvio si fa *recovery*.
+Il backend predefinito è su **SQLite** (``QUEUE_BACKEND=db``): più processi
+(1 API + N worker) reclamano atomicamente i job dalla stessa coda. Esiste anche
+un backend in-memory (``QUEUE_BACKEND=memory``, single-process); l'interfaccia
+``QueueBackend`` è astratta per un futuro Redis/Celery senza toccare pipeline o
+API. La fonte di verità resta SQLite: all'avvio si fa *recovery*.
 """
 
 from __future__ import annotations

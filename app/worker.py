@@ -17,7 +17,7 @@ from .metrics import (
     PAGES_FAILED,
     PAGES_TRANSLATED,
 )
-from .models import JobRecord, JobState
+from .models import JobRecord
 from .pipeline import run_job
 from .storage import Storage
 

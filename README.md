@@ -22,7 +22,7 @@ Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-
 **Funzionante** (v0.1.0). Verificato end-to-end su un PDF reale (`ha22.pdf`,
 4.132 pagine): upload, anteprima, stima, coda, traduzione, download — sia da
 **server** sia da **CLI**. Motore `pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`.
-Test: **61 passed** (`pytest`, motore fittizio, nessuna rete).
+Test: **76 passed** (`pytest`, motore fittizio, nessuna rete).
 
 ## Architettura
 
@@ -68,10 +68,10 @@ Serve **Python 3.12** e [uv](https://docs.astral.sh/uv/).
 ./run.sh              # avvia il server su http://127.0.0.1:18080
 ```
 
-Il server **deve** girare con un solo processo uvicorn (`run.sh` lo fa già):
-la coda e i semafori del motore sono in memoria; il parallelismo è interno.
-Con la coda su **DB** (predefinita) puoi invece separare API e worker — vedi
-"Scalabilità" più sotto.
+Con `ROLE=all` (default di `run.sh`) il server **deve** girare con un solo
+processo uvicorn (`--workers 1`): in quel processo coda e semafori del motore
+sono locali e il parallelismo è interno (thread). Con la coda su **DB**
+(predefinita) puoi invece separare API e worker — vedi "Scalabilità" più sotto.
 
 ### Deployment scalabile (API + worker)
 

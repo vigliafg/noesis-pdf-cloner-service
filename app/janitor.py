@@ -6,7 +6,6 @@ import contextlib
 import logging
 import shutil
 import threading
-import time
 
 from .config import Settings
 from .models import JobState

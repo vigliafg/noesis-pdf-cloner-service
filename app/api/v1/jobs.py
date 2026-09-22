@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import uuid
 from datetime import timezone
 from pathlib import Path
@@ -17,7 +16,6 @@ from ...estimate import estimate_job
 from ...metrics import JOBS_SUBMITTED, METRICS
 from ...models import (
     ENGINES,
-    ENGINE_LABELS,
     LANGUAGES,
     EstimateOut,
     EstimateRequest,
@@ -26,7 +24,6 @@ from ...models import (
     JobRequest,
     JobState,
     JobSummary,
-    RangeMode,
     normalize_engine,
     utcnow,
 )
@@ -38,8 +35,6 @@ from ...sse import job_event_stream
 from .deps import get_ctx
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
-
-_ACTIVE = {JobState.queued, JobState.running}
 
 
 def _download_url(job: JobRecord) -> str | None:
@@ -273,7 +268,7 @@ def download(job_id: str, request: Request, actor: Actor = Depends(get_current_a
 def job_cover(job_id: str, request: Request, actor: Actor = Depends(get_current_actor)) -> Response:
     """Copertina della tessera di storico: miniatura della prima pagina del job.
 
-    Salvata in ``artifact_dir/cover.png``. Generata in modo lazy al primo
+    Salvata in ``artifact_dir/cover_page1.png``. Generata in modo lazy al primo
     accesso; il worker la genera comunque a fine job, così sopravvive alla
     pulizia del documento (retention job > documento).
     """
