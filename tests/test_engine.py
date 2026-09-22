@@ -46,6 +46,34 @@ def test_find_pdf2zh_override(tmp_path):
     assert find_pdf2zh_bin(fake) == fake
 
 
+def test_kill_uses_taskkill_tree_on_windows(monkeypatch):
+    """Su Windows il cancel termina l'intero albero di pdf2zh_next (taskkill /T)."""
+    from app import engine as engine_module
+
+    calls: list[list[str]] = []
+
+    class FakeProc:
+        pid = 4242
+
+        def poll(self):  # noqa: ANN001
+            return None
+
+        def wait(self, timeout=None):  # noqa: ANN001
+            return 0
+
+        def kill(self):  # noqa: ANN001
+            raise AssertionError("kill() non deve essere usato su Windows")
+
+    monkeypatch.setattr(engine_module, "_is_windows", lambda: True)
+    monkeypatch.setattr(
+        engine_module.subprocess, "run", lambda cmd, **kw: calls.append(list(cmd))
+    )
+    CloneEngine._kill(FakeProc())
+    assert calls, "taskkill non invocato"
+    assert calls[0][:2] == ["taskkill", "/PID"]
+    assert "/T" in calls[0] and "/F" in calls[0]
+
+
 def test_engine_injects_llm_env_into_subprocess(tmp_path, monkeypatch):
     """Il sottoprocesso della catena google riceve modello/base/key del servizio."""
     import subprocess

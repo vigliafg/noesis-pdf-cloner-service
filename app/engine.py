@@ -470,8 +470,13 @@ class CloneEngine:
         try:
             if not _is_windows():
                 os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            else:  # pragma: no cover
-                process.terminate()
+            else:  # pragma: no cover - Windows
+                # Termina l'intero albero: pdf2zh_next può generare processi figli.
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    capture_output=True,
+                    check=False,
+                )
         except (ProcessLookupError, PermissionError):
             return
         try:
