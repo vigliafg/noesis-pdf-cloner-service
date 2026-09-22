@@ -97,7 +97,7 @@ body {
   border: 1px solid var(--line); backdrop-filter: blur(4px);
 }
 .badge.idle { background: #2a3242; color: var(--muted); }
-.badge.queued, .badge.scheduled { color: var(--warn); border-color: rgba(255,204,102,.4); }
+.badge.queued { color: var(--warn); border-color: rgba(255,204,102,.4); }
 .badge.running { color: var(--accent); border-color: rgba(79,140,255,.5); background: #1d3350; }
 .badge.done { color: var(--accent-2); border-color: rgba(53,208,165,.45); background: #14392e; }
 .badge.error, .badge.cancelled, .badge.interrupted {
@@ -137,12 +137,10 @@ body {
 .tile.st-queued .cover img, .tile.st-queued .paper, .tile.st-queued .scrim { filter: grayscale(1); }
 .tile.st-error .cover img, .tile.st-error .paper { filter: grayscale(1) brightness(.8); }
 .tile.st-error .cover::after { content: ""; position: absolute; inset: 0; background: rgba(255,107,107,.14); z-index: 2; }
-.tile.st-scheduled .cover::after { content: ""; position: absolute; inset: 0; background: rgba(255,204,102,.07); z-index: 2; }
 .tile.st-done .badge.done::before { content: "✓ "; }
 .tile.st-error .badge.error::before, .tile.st-cancelled .badge.cancelled::before,
 .tile.st-interrupted .badge.interrupted::before { content: "✗ "; }
 .tile.st-queued .badge.queued::before { content: "⏳ "; }
-.tile.st-scheduled .badge.scheduled::before { content: "⏰ "; }
 .tile.mine { border-left: 3px solid var(--accent-2); }
 
 /* progresso — "liquido": riempimento dal basso della miniatura */

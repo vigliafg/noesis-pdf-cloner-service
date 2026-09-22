@@ -86,26 +86,16 @@
 
       <!-- 5 · output -->
       <div class="pane" data-step="4" hidden>
-        <h3>Output e avvio</h3>
+        <h3>Output</h3>
         <p class="hint">Ultimo controllo, poi parte.</p>
         <div class="field"><label>Nome del PDF finale</label>
           <input type="text" id="output-name" placeholder="es. ha22_it"></div>
-        <div class="row">
-          <div class="field"><label>Se è un intervallo</label>
-            <div class="seg" id="range-mode">
-              <button type="button" data-rm="merged" class="on">Un unico PDF</button>
-              <button type="button" data-rm="single">ZIP pagine singole</button>
-            </div>
-          </div>
-          <div class="field"><label>Avvio</label>
-            <div class="seg" id="start-mode">
-              <button type="button" data-sm="now" class="on">Subito</button>
-              <button type="button" data-sm="later">Programmato</button>
-            </div>
+        <div class="field"><label>Se è un intervallo</label>
+          <div class="seg" id="range-mode">
+            <button type="button" data-rm="merged" class="on">Un unico PDF</button>
+            <button type="button" data-rm="single">ZIP pagine singole</button>
           </div>
         </div>
-        <div class="field hidden" id="start-at-wrap"><label>Data e ora</label>
-          <input type="datetime-local" id="start-at"></div>
         <div class="sum" id="summary"></div>
         <p class="hint hidden" id="wizard-error"></p>
       </div>

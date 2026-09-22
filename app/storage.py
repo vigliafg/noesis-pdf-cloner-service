@@ -52,7 +52,7 @@ class Storage:
     _JOB_COLUMNS = {
         "pages", "src_lang", "dst_lang", "engine", "output_name", "range_mode",
         "state", "priority", "pages_total", "pages_done", "pages_failed",
-        "queue_position", "error", "artifact_path", "scheduled_at", "started",
+        "queue_position", "error", "artifact_path", "started",
         "finished", "duration_ms",
     }
 
@@ -137,16 +137,16 @@ class Storage:
                    (job_id, doc_id, pages, src_lang, dst_lang, engine,
                     output_name, range_mode, state, priority, pages_total,
                     pages_done, pages_failed, queue_position, error,
-                    artifact_path, owner_id, created, scheduled_at, started,
+                    artifact_path, owner_id, created, started,
                     finished, duration_ms)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     job.job_id, job.doc_id, _json(job.pages), job.src_lang,
                     job.dst_lang, job.engine, job.output_name,
                     job.range_mode.value, job.state.value, job.priority,
                     job.pages_total, job.pages_done, job.pages_failed,
                     job.queue_position, job.error, job.artifact_path,
-                    job.owner_id, _iso(job.created), _iso(job.scheduled_at),
+                    job.owner_id, _iso(job.created),
                     _iso(job.started), _iso(job.finished), job.duration_ms,
                 ),
             )
@@ -186,7 +186,7 @@ class Storage:
                 encoded[key] = value.value if isinstance(value, RangeMode) else value
             elif key == "state":
                 encoded[key] = value.value if isinstance(value, JobState) else value
-            elif key in {"started", "finished", "scheduled_at"}:
+            elif key in {"started", "finished"}:
                 encoded[key] = _iso(value)
             else:
                 encoded[key] = value
@@ -212,16 +212,6 @@ class Storage:
                 "SELECT state, COUNT(*) AS n FROM jobs GROUP BY state"
             ).fetchall()
         return {r["state"]: r["n"] for r in rows}
-
-    def due_scheduled_jobs(self, now: datetime) -> list[JobRecord]:
-        """Job programmati la cui ora di avvio è arrivata."""
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM jobs WHERE state=? AND scheduled_at IS NOT NULL "
-                "AND scheduled_at <= ? ORDER BY priority DESC, scheduled_at",
-                (JobState.scheduled.value, _iso(now)),
-            ).fetchall()
-        return [self._row_to_job(r) for r in rows]
 
     # ── coda su database (multi-processo) ────────────────────────────────
     def claim_next_job(self) -> JobRecord | None:
@@ -289,13 +279,12 @@ class Storage:
                 "UPDATE jobs SET cancel_requested=1 WHERE job_id=?", (job_id,)
             )
             self._conn.execute(
-                "UPDATE jobs SET state=?, error=? WHERE job_id=? AND state IN (?,?)",
+                "UPDATE jobs SET state=?, error=? WHERE job_id=? AND state=?",
                 (
                     JobState.cancelled.value,
                     "annullato prima dell'esecuzione",
                     job_id,
                     JobState.queued.value,
-                    JobState.scheduled.value,
                 ),
             )
             self._conn.commit()
@@ -354,7 +343,6 @@ class Storage:
             artifact_path=row["artifact_path"],
             owner_id=row["owner_id"],
             created=_parse(row["created"]) or utcnow(),
-            scheduled_at=_parse(row["scheduled_at"]),
             started=_parse(row["started"]),
             finished=_parse(row["finished"]),
             duration_ms=row["duration_ms"],

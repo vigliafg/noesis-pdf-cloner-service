@@ -70,7 +70,6 @@ class Settings:
     max_queue_size: int = 100
     max_pages_per_block: int = 100  # blocco di pagine elaborato per volta
     max_pages_total: int = 5000  # limite complessivo di pagine per job
-    schedule_poll_seconds: int = 30  # frequenza del pianificatore (job notturno)
 
     # ── upload / sicurezza ──────────────────────────────────────────────
     max_upload_mb: int = 500
@@ -186,7 +185,6 @@ class Settings:
             max_queue_size=_env_int("MAX_QUEUE_SIZE", 100),
             max_pages_per_block=_env_int("MAX_PAGES_PER_BLOCK", 100),
             max_pages_total=_env_int("MAX_PAGES_TOTAL", 5000),
-            schedule_poll_seconds=_env_int("SCHEDULE_POLL_SECONDS", 30),
             max_upload_mb=_env_int("MAX_UPLOAD_MB", 500),
             rate_limit_per_minute=_env_int("RATE_LIMIT_PER_MINUTE", 120),
             rate_limit_jobs_per_hour=_env_int("RATE_LIMIT_JOBS_PER_HOUR", 60),

@@ -1,9 +1,9 @@
 """Test della coda: priorità, posizione, rimozione e recovery."""
 
+import threading
 import time
-from datetime import timedelta
 
-from app.models import DocumentRecord, JobRecord, JobState, utcnow
+from app.models import DocumentRecord, JobRecord, JobState
 from app.queue import InMemoryQueueBackend, JobQueue
 from app.storage import Storage
 
@@ -46,39 +46,6 @@ def _seed(storage, state: JobState, job_id: str, doc_id: str = "d"):
     )
 
 
-def test_scheduled_jobs_promotion(settings):
-    storage = Storage(settings)
-    storage.create_document(
-        DocumentRecord(
-            doc_id="d", filename="a.pdf", sha256="x", page_count=1, path="/tmp/a.pdf"
-        )
-    )
-    storage.create_job(
-        JobRecord(
-            job_id="past", doc_id="d", pages=[0], state=JobState.scheduled,
-            scheduled_at=utcnow() - timedelta(minutes=1),
-        )
-    )
-    storage.create_job(
-        JobRecord(
-            job_id="future", doc_id="d", pages=[0], state=JobState.scheduled,
-            scheduled_at=utcnow() + timedelta(hours=1),
-        )
-    )
-    runner = _RecordingRunner(storage)
-    queue = JobQueue(storage, settings, runner)
-    queue.start()
-    deadline = time.time() + 5
-    while time.time() < deadline and "past" not in runner.seen:
-        time.sleep(0.05)
-    queue.stop()
-
-    assert "past" in runner.seen
-    assert storage.get_job("past").state is JobState.done
-    assert storage.get_job("future").state is JobState.scheduled
-    storage.close()
-
-
 def test_recovery_and_processing(settings):
     storage = Storage(settings)
     storage.create_document(
@@ -100,4 +67,69 @@ def test_recovery_and_processing(settings):
     assert "queued-1" in runner.seen
     assert storage.get_job("running-1").state is JobState.interrupted
     assert storage.get_job("queued-1").state is JobState.done
+    storage.close()
+
+
+class _BlockingRunner:
+    """Runner che si blocca finché non riceve l'annullamento (cancel in esecuzione)."""
+
+    def __init__(self, storage):
+        self.storage = storage
+        self.started = threading.Event()
+        self.cancelled = threading.Event()
+
+    def run(self, job, cancel_event):
+        self.started.set()
+        if cancel_event.wait(timeout=5):
+            self.cancelled.set()
+        self.storage.update_job(job.job_id, state=JobState.cancelled)
+
+
+def test_cancel_queued_job_not_executed(settings):
+    """Un job annullato prima dell'avvio non viene eseguito."""
+    storage = Storage(settings)
+    _seed(storage, JobState.queued, "q")
+    runner = _RecordingRunner(storage)
+    queue = JobQueue(storage, settings, runner)
+
+    assert queue.cancel("q") is True
+    assert storage.get_job("q").state is JobState.cancelled
+
+    queue.start()
+    time.sleep(0.3)
+    queue.stop()
+
+    assert "q" not in runner.seen
+    storage.close()
+
+
+def test_cancel_running_job_signals_event(settings):
+    """Il cancel di un job in esecuzione attiva l'evento del worker."""
+    storage = Storage(settings)
+    _seed(storage, JobState.queued, "r")
+    runner = _BlockingRunner(storage)
+    queue = JobQueue(storage, settings, runner)
+    queue.start()
+    try:
+        assert runner.started.wait(5)
+        assert queue.cancel("r") is True
+        assert runner.cancelled.wait(5)
+    finally:
+        queue.stop()
+        storage.close()
+
+
+def test_many_cancellations_leave_no_residual_state(settings):
+    """Regressione: annullare molti job in coda non accumula stato in memoria."""
+    storage = Storage(settings)
+    queue = JobQueue(storage, settings, _RecordingRunner(storage))
+    for index in range(10):
+        job_id = f"q{index}"
+        _seed(storage, JobState.queued, job_id)
+        queue.cancel(job_id)
+
+    assert queue._cancel_events == {}
+    assert not hasattr(queue, "_cancelled")
+    for index in range(10):
+        assert storage.get_job(f"q{index}").state is JobState.cancelled
     storage.close()

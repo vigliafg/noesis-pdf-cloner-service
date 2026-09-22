@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _TABLES = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     artifact_path  TEXT,
     owner_id       TEXT,
     created        TEXT NOT NULL,
-    scheduled_at   TEXT,
+    scheduled_at   TEXT,  -- deprecata: la schedulazione dei job è stata rimossa
     cancel_requested INTEGER NOT NULL DEFAULT 0,
     started        TEXT,
     finished       TEXT,
@@ -168,9 +168,21 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     conn.executescript(_TABLES)
     _ensure_column(conn, "jobs", "scheduled_at", "TEXT")
     _ensure_column(conn, "jobs", "cancel_requested", "INTEGER NOT NULL DEFAULT 0")
+    _promote_legacy_scheduled(conn)
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (str(SCHEMA_VERSION),),
     )
     conn.commit()
+
+
+def _promote_legacy_scheduled(conn: sqlite3.Connection) -> None:
+    """Schedulazione rimossa: i job legacy ``scheduled`` tornano in coda.
+
+    Idempotente: dopo la prima esecuzione non ci sono più righe in quello stato.
+    Evita che job creati prima dell'aggiornamento restino orfani e non eseguiti.
+    """
+    conn.execute(
+        "UPDATE jobs SET state='queued', scheduled_at=NULL WHERE state='scheduled'"
+    )

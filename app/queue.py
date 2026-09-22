@@ -18,7 +18,7 @@ from itertools import count
 
 from .config import Settings
 from .metrics import METRICS, QUEUE_LENGTH
-from .models import JobState, utcnow
+from .models import JobState
 from .storage import Storage
 
 log = logging.getLogger("noesis.queue")
@@ -112,7 +112,7 @@ class DatabaseQueueBackend(QueueBackend):
 
     def put(self, job_id: str, priority: int = 0) -> None:
         job = self.storage.get_job(job_id)
-        if job is None or job.state is JobState.scheduled:
+        if job is None:
             return
         self.storage.update_job(job_id, state=JobState.queued, priority=int(priority))
 
@@ -129,7 +129,7 @@ class DatabaseQueueBackend(QueueBackend):
 
     def remove(self, job_id: str) -> bool:
         job = self.storage.get_job(job_id)
-        if job is not None and job.state in {JobState.queued, JobState.scheduled}:
+        if job is not None and job.state is JobState.queued:
             self.storage.request_cancel(job_id)
             return True
         return False
@@ -164,17 +164,15 @@ class JobQueue:
         self.backend = backend or make_backend(settings, storage)
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
-        self._scheduler: threading.Thread | None = None
-        self._cancelled: set[str] = set()
         self._cancel_lock = threading.Lock()
         self._cancel_events: dict[str, threading.Event] = {}
 
     # ── ciclo di vita ────────────────────────────────────────────────────
     def start(self, serve_workers: bool = True) -> None:
-        """Avvia lo scheduler e, se richiesto, i worker.
+        """Avvia i worker (se richiesto).
 
-        ``serve_workers=False`` (ruolo ``api``) avvia solo lo scheduler: i job
-        vengono accodati e reclamati dai processi worker.
+        ``serve_workers=False`` (ruolo ``api``) non avvia thread: i job vengono
+        accodati e reclamati dai processi worker.
         """
         if serve_workers:
             self._recover()
@@ -184,10 +182,6 @@ class JobQueue:
                 )
                 thread.start()
                 self._threads.append(thread)
-        self._scheduler = threading.Thread(
-            target=self._scheduler_loop, name="noesis-scheduler", daemon=True
-        )
-        self._scheduler.start()
         self._update_gauge()
         log.info(
             "coda avviata: %d worker, backend %s",
@@ -202,9 +196,6 @@ class JobQueue:
         for thread in self._threads:
             thread.join(timeout=timeout)
         self._threads.clear()
-        if self._scheduler is not None:
-            self._scheduler.join(timeout=timeout)
-            self._scheduler = None
 
     def _recover(self) -> None:
         """Ripristina lo stato dopo un riavvio: source of truth = SQLite."""
@@ -217,28 +208,6 @@ class JobQueue:
             log.warning("job %s riportato a interrupted", job.job_id)
         for job in self.storage.jobs_by_state(JobState.queued):
             self.backend.put(job.job_id, job.priority)
-        self._promote_scheduled()
-
-    def _promote_scheduled(self) -> int:
-        """Sposta in coda i job programmati la cui ora di avvio è arrivata."""
-        promoted = 0
-        for job in self.storage.due_scheduled_jobs(utcnow()):
-            self.storage.update_job(job.job_id, state=JobState.queued)
-            self.backend.put(job.job_id, job.priority)
-            promoted += 1
-        return promoted
-
-    def _scheduler_loop(self) -> None:
-        interval = max(5, self.settings.schedule_poll_seconds)
-        while not self._stop.is_set():
-            try:
-                promoted = self._promote_scheduled()
-                if promoted:
-                    log.info("promossi %d job programmati", promoted)
-                    self._update_gauge()
-            except Exception:  # pragma: no cover - difensivo
-                log.exception("errore nello scheduler dei job programmati")
-            self._stop.wait(interval)
 
     # ── API ──────────────────────────────────────────────────────────────
     def submit(self, job_id: str, priority: int = 0) -> None:
@@ -251,16 +220,18 @@ class JobQueue:
         job = self.storage.get_job(job_id)
         removed = self.backend.remove(job_id)
         with self._cancel_lock:
-            self._cancelled.add(job_id)
             event = self._cancel_events.get(job_id)
         if event is not None:
             event.set()
         # Annullamento cross-processo: il worker (anche di un altro processo)
-        # se ne accorge dal flag su DB e interrompe il subprocess.
+        # se ne accorge dal flag durevole su DB e interrompe il subprocess.
+        # Il flag su DB copre sia i job in coda sia quelli in esecuzione, quindi
+        # non serve tenere una lista di job annullati in memoria (che crescerebbe
+        # senza limite per i job mai prelevati).
         self.storage.request_cancel(job_id)
         self._update_gauge()
         return removed or event is not None or (
-            job is not None and job.state in {JobState.queued, JobState.scheduled}
+            job is not None and job.state is JobState.queued
         )
 
     def position(self, job_id: str) -> int | None:
@@ -276,16 +247,8 @@ class JobQueue:
             self._update_gauge()
             if not job_id:
                 continue
+            cancel_event = threading.Event()
             with self._cancel_lock:
-                if job_id in self._cancelled:
-                    self._cancelled.discard(job_id)
-                    self.storage.update_job(
-                        job_id,
-                        state=JobState.cancelled,
-                        error="annullato prima dell'esecuzione",
-                    )
-                    continue
-                cancel_event = threading.Event()
                 self._cancel_events[job_id] = cancel_event
             try:
                 self._execute(job_id, cancel_event)
@@ -296,6 +259,15 @@ class JobQueue:
     def _execute(self, job_id: str, cancel_event: threading.Event) -> None:
         job = self.storage.get_job(job_id)
         if job is None or job.state not in {JobState.queued, JobState.running}:
+            return
+        if self.storage.is_cancel_requested(job_id):
+            # Annullato tra il claim e l'avvio: nessuna traduzione.
+            self.storage.update_job(
+                job_id,
+                state=JobState.cancelled,
+                error="annullato prima dell'esecuzione",
+            )
+            self.storage.clear_cancel(job_id)
             return
         stop = threading.Event()
         watcher = threading.Thread(

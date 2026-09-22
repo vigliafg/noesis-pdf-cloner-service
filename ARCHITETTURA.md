@@ -68,7 +68,7 @@ evitare errori; log live.
       ┌──────────────────────────────────────────────┐         │
       │           JobQueue (ROLE=worker|all)          │         │
       │  QueueBackend = db | memory                   │         │
-      │  scheduler (job programmati) · N worker thread│         │
+      │  N worker thread                              │         │
       └───────────────┬───────────────────────────────┘         │
                       ▼                                          │
       ┌──────────────────────────────────────────────┐         │
@@ -96,7 +96,7 @@ evitare errori; log live.
 | `app/migrations.py` | Schema versionato, migrazioni idempotenti |
 | `app/engine.py` | Adattatore headless di `pdf2zh_next`: split, cache, lock, cancel, thumb |
 | `app/pipeline.py` | **Cuore condiviso**: esecuzione job a blocchi, artefatto, usage |
-| `app/queue.py` | `QueueBackend` (db/memory), `JobQueue`, scheduler, worker |
+| `app/queue.py` | `QueueBackend` (db/memory), `JobQueue`, worker |
 | `app/worker.py` | Costruzione engine per job + metriche |
 | `app/worker_main.py` | Processo worker standalone (multi-processo) |
 | `app/resources.py` | Rilevamento CPU/RAM/disco, autosizing, guardie |
@@ -127,7 +127,7 @@ evitare errori; log live.
                             estrae page_count/etichette/TOC → doc_id
 2. (frontend) anteprima   → GET /documents/{id}/thumb?page=N
 3. POST /jobs/estimate    → tempo e costo stimati (cache + storico)
-4. POST /jobs             → crea Job (stato queued|scheduled), accoda su DB
+4. POST /jobs             → crea Job (stato queued), accoda su DB
 5. worker: claim atomico  → stato running; watcher di cancel avviato
 6. pipeline.run_job       → per ogni blocco di 100 pagine:
                               ThreadPoolExecutor → engine.translate_page
@@ -137,9 +137,8 @@ evitare errori; log live.
 10. download              → GET /jobs/{id}/download
 ```
 
-Stati: `scheduled → queued → running → (done | error | cancelled)`, più
-`interrupted` (job `running` trovato al riavvio del worker). I job `scheduled`
-sono **promossi** a `queued` dallo scheduler quando arriva `scheduled_at`.
+Stati: `queued → running → (done | error | cancelled)`, più `interrupted`
+(job `running` trovato al riavvio del worker).
 
 ---
 
@@ -152,7 +151,7 @@ Tabelle attive:
   `size_bytes`, `created`, `updated`.
 - **jobs**: parametri (pagine, lingue, motore, `output_name`, `range_mode`),
   `state`, `priority`, progressi, `queue_position`, `error`, `artifact_path`,
-  `owner_id`, `created`/`scheduled_at`/`started`/`finished`, `duration_ms`,
+  `owner_id`, `created`/`started`/`finished`, `duration_ms`,
   `cancel_requested`.
 - **usage**: una riga per job concluso (pagine, caratteri, token, durata) →
   statistiche e base della fatturazione futura.
@@ -207,8 +206,8 @@ vedono **numeri 1-based**; la conversione avviene in un solo punto.
   entrypoint separato `python -m app.worker_main`.
 - **Perché**: disaccoppia il serving HTTP (leggero, scalabile) dall'esecuzione
   (pesante, CPU/RAM). Abilita lo scaling orizzontale dei worker.
-- **Conseguenze**: lo **scheduler** dei job programmati gira in ogni processo;
-  il **recovery** solo nei worker; il **janitor** in `all`/`worker`.
+- **Conseguenze**: il **recovery** avviene solo nei worker; il **janitor** in
+  `all`/`worker`.
 
 ### ADR-006 — Parallelismo a due livelli con limite sui processi motore
 - **Decisione**: `ThreadPoolExecutor` per le pagine di un job

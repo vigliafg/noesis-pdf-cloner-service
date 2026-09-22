@@ -59,7 +59,9 @@ async def job_event_stream(
         for line in lines:
             yield f"data: {line}\n\n"
         job = storage.get_job(job_id)
-        if job is not None and job.state in _TERMINAL and not lines:
+        if job is None:
+            break
+        if job.state in _TERMINAL and not lines:
             break
         await asyncio.sleep(0.5)
     yield "event: end\ndata: " + json.dumps({"job_id": job_id}) + "\n\n"

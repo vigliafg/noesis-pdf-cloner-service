@@ -52,7 +52,6 @@ LANGUAGES: dict[str, str] = {
 
 # Stati del ciclo di vita di un job.
 class JobState(str, Enum):
-    scheduled = "scheduled"
     queued = "queued"
     running = "running"
     done = "done"
@@ -87,8 +86,6 @@ class JobRequest(BaseModel):
     output_name: str | None = None
     range_mode: RangeMode = RangeMode.merged
     priority: int = 0
-    # Avvio programmato (job notturno): se futuro il job resta "scheduled".
-    start_at: datetime | None = None
 
 
 class EstimateRequest(BaseModel):
@@ -139,7 +136,6 @@ class JobOut(BaseModel):
     error: str | None
     download_url: str | None
     created: datetime
-    scheduled_at: datetime | None = None
     started: datetime | None = None
     finished: datetime | None = None
     duration_ms: int | None = None
@@ -161,7 +157,6 @@ class JobSummary(BaseModel):
     pages_contiguous: bool = True
     range_mode: RangeMode = RangeMode.merged
     queue_position: int | None = None
-    scheduled_at: datetime | None = None
     duration_ms: int | None = None
     created: datetime
 
@@ -238,7 +233,6 @@ class JobRecord:
     artifact_path: str | None = None
     owner_id: str | None = None
     created: datetime = field(default_factory=utcnow)
-    scheduled_at: datetime | None = None
     started: datetime | None = None
     finished: datetime | None = None
     duration_ms: int | None = None
@@ -261,7 +255,6 @@ class JobRecord:
             error=self.error,
             download_url=download_url,
             created=self.created,
-            scheduled_at=self.scheduled_at,
             started=self.started,
             finished=self.finished,
             duration_ms=self.duration_ms,

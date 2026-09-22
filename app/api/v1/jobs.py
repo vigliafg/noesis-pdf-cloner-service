@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -25,7 +24,6 @@ from ...models import (
     JobState,
     JobSummary,
     normalize_engine,
-    utcnow,
 )
 from ...pages import parse_pages
 from ...quota import check_quota
@@ -93,15 +91,6 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
     default_name = f"{sanitize_stem(Path(document.filename).stem, 'document')}_{payload.dst_lang}"
     output_name = sanitize_stem(payload.output_name or default_name, default_name)
 
-    # Avvio programmato (job notturno): se futuro resta "scheduled".
-    scheduled_at = payload.start_at
-    if scheduled_at is not None:
-        if scheduled_at.tzinfo is None:
-            scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
-        if scheduled_at <= utcnow():
-            scheduled_at = None
-    state = JobState.scheduled if scheduled_at is not None else JobState.queued
-
     job = JobRecord(
         job_id=uuid.uuid4().hex,
         doc_id=document.doc_id,
@@ -111,30 +100,23 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
         engine=engine,
         output_name=output_name,
         range_mode=payload.range_mode,
-        state=state,
+        state=JobState.queued,
         priority=max(0, min(int(payload.priority), 10)),
         pages_total=len(pages),
         owner_id=actor.id,
-        scheduled_at=scheduled_at,
     )
     ctx.storage.create_job(job)
-    if scheduled_at is None:
-        try:
-            ctx.queue.submit(job.job_id, job.priority)
-        except RuntimeError as exc:
-            ctx.storage.update_job(job.job_id, state=JobState.error, error=str(exc))
-            raise HTTPException(status_code=429, detail=str(exc)) from exc
+    try:
+        ctx.queue.submit(job.job_id, job.priority)
+    except RuntimeError as exc:
+        ctx.storage.update_job(job.job_id, state=JobState.error, error=str(exc))
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     METRICS.inc(JOBS_SUBMITTED)
     audit.record(
         ctx.storage, actor, "job.create", job.job_id,
-        {
-            "pages": len(pages),
-            "engine": job.engine,
-            "scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
-        },
+        {"pages": len(pages), "engine": job.engine},
     )
-    if scheduled_at is None:
-        job.queue_position = ctx.queue_position(job.job_id)
+    job.queue_position = ctx.queue_position(job.job_id)
     return job.to_out(download_url=None)
 
 
@@ -213,7 +195,6 @@ def list_jobs(request: Request, limit: int = 50, actor: Actor = Depends(get_curr
                 queue_position=(
                     ctx.queue_position(j.job_id) if j.state == JobState.queued else None
                 ),
-                scheduled_at=j.scheduled_at,
                 duration_ms=j.duration_ms,
                 created=j.created,
             )

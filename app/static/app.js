@@ -5,13 +5,12 @@
 "use strict";
 
 const API = "/api/v1";
-const ACTIVE = ["queued", "running", "scheduled"];
+const ACTIVE = ["queued", "running"];
 const TERMINAL = ["done", "error", "cancelled", "interrupted"];
 const STEPS = ["File", "Pagine", "Lingue", "Motore", "Output"];
 const STATE_LABEL = {
   queued: "in coda", running: "running", done: "done",
   error: "errore", cancelled: "annullato", interrupted: "interrotto",
-  scheduled: "programmato",
 };
 
 const state = {
@@ -26,7 +25,7 @@ const state = {
     id: null, docId: null, timer: null, source: null,
     pages: [], labels: new Map(), thumbs: new Map(), docAvailable: false,
   },
-  wizard: { step: 0, rangeMode: "merged", startMode: "now" },
+  wizard: { step: 0, rangeMode: "merged" },
   search: "",
 };
 
@@ -115,12 +114,6 @@ function humanDuration(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   const m = Math.floor(s / 60);
   return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
-}
-
-function formatTime(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
 }
 
 function engineLabel(code) {
@@ -377,9 +370,6 @@ function refreshSummary() {
     ["Motore", engineLabel(selectedEngine())],
     ["Uscita", `${$("output-name").value || "(automatico)"} · ${state.wizard.rangeMode === "single" ? "ZIP pagine singole" : "unico PDF"}`],
   ];
-  if (state.wizard.startMode === "later" && $("start-at").value) {
-    lines.push(["Avvio", formatTime(new Date($("start-at").value).toISOString())]);
-  }
   box.textContent = "";
   for (const [k, v] of lines) {
     const row = document.createElement("div");
@@ -401,9 +391,6 @@ async function submitJob() {
     output_name: $("output-name").value || null,
     range_mode: state.wizard.rangeMode,
   };
-  if (state.wizard.startMode === "later" && $("start-at").value) {
-    payload.start_at = new Date($("start-at").value).toISOString();
-  }
   $("wizard-next").disabled = true;
   let response;
   try {
@@ -429,7 +416,7 @@ async function submitJob() {
 /* ── griglia ───────────────────────────────────────────────────────────── */
 
 function sortJobs(jobs) {
-  const rank = { running: 0, queued: 1, scheduled: 2 };
+  const rank = { running: 0, queued: 1 };
   return [...jobs].sort((a, b) => {
     const ra = rank[a.state] ?? 3;
     const rb = rank[b.state] ?? 3;
@@ -505,9 +492,6 @@ function tileMeta(job) {
   const base = `${eng} → ${job.dst_lang}`;
   if (job.state === "queued") {
     return `${base} · in coda${job.queue_position ? ` (${job.queue_position}°)` : ""}`;
-  }
-  if (job.state === "scheduled") {
-    return `${base} · ${formatTime(job.scheduled_at)}`;
   }
   if (job.state === "done") {
     return `${base} · ${job.pages_total}/${job.pages_total}`;
@@ -804,7 +788,7 @@ function scheduleDrawerTick() {
       if (state.drawer.source) { state.drawer.source.close(); state.drawer.source = null; }
       return;
     }
-    state.drawer.timer = setTimeout(tick, job.state === "scheduled" ? 30000 : 1500);
+    state.drawer.timer = setTimeout(tick, 1500);
   };
   state.drawer.timer = setTimeout(tick, 400);
 }
@@ -825,8 +809,6 @@ function renderDrawer(job) {
     eta = `durata ${humanDuration(job.duration_ms)}`;
   } else if (job.state === "queued" && job.queue_position) {
     eta = `posizione in coda: ${job.queue_position}`;
-  } else if (job.state === "scheduled" && job.scheduled_at) {
-    eta = `avvio ${formatTime(job.scheduled_at)}`;
   } else if (job.error) {
     eta = job.error;
   }
@@ -920,16 +902,6 @@ function bind() {
       refreshSummary();
     });
   });
-  document.querySelectorAll("#start-mode button").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll("#start-mode button").forEach((b) => b.classList.remove("on"));
-      btn.classList.add("on");
-      state.wizard.startMode = btn.dataset.sm;
-      $("start-at-wrap").classList.toggle("hidden", btn.dataset.sm !== "later");
-      refreshSummary();
-    });
-  });
-  $("start-at").addEventListener("change", refreshSummary);
   $("output-name").addEventListener("input", refreshSummary);
 
   // dimensione tessere

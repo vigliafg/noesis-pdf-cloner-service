@@ -22,8 +22,8 @@ priorità e parallelismo a livello pagina.
 - Cache **versionata**, scritture atomiche, lock inter-processo, process group
   per il cancel.
 - CLI headless batch con `tqdm`.
-- **Libri interi a blocchi da 100**, **stima tempo/costo** (`POST /jobs/estimate`)
-  e **job notturni** (`start_at`, stato `scheduled` promosso dallo scheduler).
+- **Libri interi a blocchi da 100** e **stima tempo/costo**
+  (`POST /jobs/estimate`).
 - **Modello di costo LLM calibrato**: `costo_USD ≈ 6.8e-7 × chars_sorgente`
   (overhead 13.3×, prezzi Mercury-2.5 0.04/0.15 $/Mtok). Vedi README.
 - **Prezzo commerciale di default: 1 centesimo/pagina** per il motore LLM
