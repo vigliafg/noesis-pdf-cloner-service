@@ -149,6 +149,25 @@ def python_exe() -> str:
 # ── UI ──────────────────────────────────────────────────────────────────────
 
 _LEVEL_ICON = {"info": "·", "ok": "✔", "warn": "!", "error": "✗"}
+_ASCII_ICON = {"info": "-", "ok": "+", "warn": "!", "error": "x"}
+
+
+def _configure_stdio() -> None:
+    """Su Windows il default è cp1252: forza UTF-8 (best effort)."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+def _stream_supports_unicode() -> bool:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        "✔".encode(encoding)
+        return True
+    except (UnicodeEncodeError, LookupError):
+        return False
 
 
 class UI:
@@ -158,15 +177,17 @@ class UI:
         self.json_mode = json_mode
         self.quiet = quiet
         self.events: list[dict[str, str]] = []
+        self.icons = _LEVEL_ICON if _stream_supports_unicode() else _ASCII_ICON
         if color is None:
             color = sys.stdout.isatty() and not json_mode and os.environ.get("NO_COLOR") is None
         self.color = bool(color)
 
     def _paint(self, level: str, message: str) -> str:
+        icon = self.icons[level]
         if not self.color:
-            return f"{_LEVEL_ICON[level]} {message}"
+            return f"{icon} {message}"
         codes = {"info": "36", "ok": "32", "warn": "33", "error": "31"}
-        return f"\033[{codes[level]}m{_LEVEL_ICON[level]}\033[0m {message}"
+        return f"\033[{codes[level]}m{icon}\033[0m {message}"
 
     def emit(self, level: str, message: str) -> None:
         self.events.append({"level": level, "message": message})
@@ -1400,6 +1421,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, UI], int]] = {
 
 def main(argv: Sequence[str] | None = None) -> int:
     global DRY_RUN
+    _configure_stdio()
     argv = list(sys.argv[1:] if argv is None else argv)
     # `cli` è passthrough puro verso app.cli: non passa da argparse.
     if argv and argv[0] == "cli":

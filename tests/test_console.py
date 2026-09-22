@@ -171,8 +171,9 @@ def _spec(tmp_path: Path) -> noesis.ServiceSpec:
 
 
 def test_systemd_unit_user(tmp_path):
-    text = noesis.systemd_unit_text(_spec(tmp_path), system=False)
-    assert "ExecStart=/opt/noesis/.venv/bin/python -m uvicorn app.main:app" in text
+    spec = _spec(tmp_path)
+    text = noesis.systemd_unit_text(spec, system=False)
+    assert f"ExecStart={spec.venv_python} -m uvicorn app.main:app" in text
     assert "--host 0.0.0.0 --port 18080" in text
     assert "WantedBy=default.target" in text
     assert "EnvironmentFile=" in text
@@ -223,10 +224,27 @@ def test_firewall_commands():
 
 def test_uvicorn_command(monkeypatch):
     monkeypatch.setattr(noesis, "is_windows", lambda: False)
-    cmd = noesis.uvicorn_command(Path("/r/.venv"), "0.0.0.0", 18080)
-    assert cmd[0] == "/r/.venv/bin/python"
+    venv = Path("/r/.venv")
+    cmd = noesis.uvicorn_command(venv, "0.0.0.0", 18080)
+    assert cmd[0] == str(noesis.venv_python_in(venv))
     assert cmd[1:4] == ["-m", "uvicorn", "app.main:app"]
     assert cmd[-1] == "18080"
+
+
+# ── UI (fallback ASCII su console non-UTF8, es. Windows cp1252) ─────────────
+
+
+def test_ui_ascii_fallback(monkeypatch):
+    monkeypatch.setattr(noesis, "_stream_supports_unicode", lambda: False)
+    ui = noesis.UI()
+    assert ui.icons["ok"] == "+"
+    assert "\u2714" not in ui._paint("ok", "ciao")
+
+
+def test_ui_unicode_when_supported(monkeypatch):
+    monkeypatch.setattr(noesis, "_stream_supports_unicode", lambda: True)
+    ui = noesis.UI()
+    assert ui.icons["ok"] == "\u2714"
 
 
 # ── doctor ──────────────────────────────────────────────────────────────────
