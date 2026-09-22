@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# noesis — launcher della console (Linux · macOS · WSL).
+#
+# Trova un Python (o uv) e delega a tools/noesis.py, così funziona anche
+# subito dopo il clone, prima che i venv esistano.
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$DIR/tools/noesis.py"
+
+if [ -x "$DIR/.venv/bin/python" ]; then
+  exec "$DIR/.venv/bin/python" "$SCRIPT" "$@"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$SCRIPT" "$@"
+fi
+if command -v uv >/dev/null 2>&1; then
+  exec uv run --no-project python "$SCRIPT" "$@"
+fi
+
+echo "· Python e uv non trovati: installo uv (porta con sé un Python)…" >&2
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+exec uv run --no-project python "$SCRIPT" "$@"

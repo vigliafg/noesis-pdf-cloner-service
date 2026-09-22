@@ -1,5 +1,10 @@
 # Deploy su VPS (systemd + nginx)
 
+> **Nota**: per l'installazione su una macchina personale o in LAN usa la console
+> `./noesis install` (vedi [`../docs/INSTALL.md`](../docs/INSTALL.md)): crea venv,
+> config e servizio da sola. Le unit qui sotto restano per il **deploy manuale**
+> e per il futuro **VPS** (`--mode system`).
+
 Schema consigliato su **un VPS scalabile**:
 
 ```

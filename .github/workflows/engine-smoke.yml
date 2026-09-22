@@ -1,0 +1,22 @@
+name: engine-smoke
+
+# Verifica opzionale del motore reale (pesante: ~1,1 GB di dipendenze).
+# Non blocca le PR: si lancia a mano o una volta a settimana.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installa uv
+        uses: astral-sh/setup-uv@v5
+      - name: Installa il motore pdf2zh_next
+        run: |
+          uv venv --python 3.12 .venv2
+          uv pip install --python .venv2/bin/python -q -r requirements-engine.txt
+      - name: Verifica motore
+        run: .venv2/bin/pdf2zh_next --version

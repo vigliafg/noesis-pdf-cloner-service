@@ -1,0 +1,1440 @@
+#!/usr/bin/env python3
+"""noesis — console unica di installazione e gestione del servizio.
+
+Un solo punto di verità, **solo standard library**, multipiattaforma
+(Linux · macOS · WSL · Windows nativo). I gusci ``install.sh`` / ``install.ps1``
+e i launcher ``./noesis`` / ``noesis.cmd`` delegano qui.
+
+Comandi principali::
+
+    noesis install     crea venv + motore, config, servizio, pre-warm
+    noesis start/stop/restart/status/logs
+    noesis doctor      diagnosi (cosa manca e perché)
+    noesis open        apre il frontend nel browser
+    noesis service     install/enable/disable/uninstall del servizio
+    noesis bundle      crea un pacchetto offline (wheel + modelli)
+    noesis update      aggiorna il codice e le dipendenze
+    noesis uninstall   rimuove il servizio (e, con --purge, i dati)
+
+Il file di configurazione è ``<data_dir>/noesis.env``: sono le stesse
+variabili d'ambiente che l'applicazione già legge (``Settings.from_env``).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import re
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.error
+import urllib.request
+import webbrowser
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Iterable, Sequence
+
+# ── costanti ────────────────────────────────────────────────────────────────
+
+APP_NAME = "noesis-pdf-cloner-service"
+SERVICE_NAME = "noesis-pdf-cloner-service"
+SERVICE_LABEL = "com.noesis.pdf-cloner-service"
+DEFAULT_PORT = 18080
+DEFAULT_HOST = "0.0.0.0"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+REQUIREMENTS = "requirements.txt"
+REQUIREMENTS_ENGINE = "requirements-engine.txt"
+PYTHON_VERSION = "3.12"
+UV_INSTALL_SH = "https://astral.sh/uv/install.sh"
+UV_INSTALL_PS1 = "https://astral.sh/uv/install.ps1"
+BABELDOC_CACHE_ENV = ("BABELDOC_CACHE_DIR", "BABELDOC_CACHE")
+STOP_TIMEOUT = 20.0
+
+# Configurazione scritta di default (stesse chiavi lette da app/config.py).
+DEFAULT_CONFIG: dict[str, str] = {
+    "HOST": DEFAULT_HOST,
+    "PORT": str(DEFAULT_PORT),
+    "ROLE": "all",
+    "QUEUE_BACKEND": "db",
+    "AUTOSIZE": "true",
+}
+
+CONFIG_HEADER = """\
+# Noesis PDF Cloner Service — configurazione
+# Generato da `noesis install`. È un file .env: le variabili sono le stesse
+# lette dall'applicazione (vedi README, "Configurazione").
+#
+# HOST=0.0.0.0 rende il servizio raggiungibile dalla LAN; in locale puoi usare
+# anche 127.0.0.1. OPENROUTER_API_KEY serve solo per il motore `llm`.
+"""
+
+
+# ── ambiente / piattaforma ──────────────────────────────────────────────────
+
+
+def is_windows() -> bool:
+    return os.name == "nt"
+
+
+def is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
+def is_linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def is_wsl() -> bool:
+    """True se giriamo dentro Windows Subsystem for Linux."""
+    if not is_linux():
+        return False
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    try:
+        text = Path("/proc/version").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return "microsoft" in text.lower()
+
+
+def has_display() -> bool:
+    """True se c'è una sessione grafica (per l'auto-apertura del browser)."""
+    if is_macos() or is_windows():
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def venv_python_in(venv: Path) -> Path:
+    if is_windows():
+        return venv / "Scripts" / "python.exe"
+    return venv / "bin" / "python"
+
+
+def venv_bin_dir(venv: Path) -> Path:
+    return venv / ("Scripts" if is_windows() else "bin")
+
+
+def default_data_dir() -> Path:
+    """Cartella dati standard dell'OS, dedicata a questa applicazione."""
+    home = Path.home()
+    if is_windows():
+        base = Path(os.environ.get("LOCALAPPDATA") or (home / "AppData" / "Local"))
+        return base / APP_NAME
+    if is_macos():
+        return home / "Library" / "Application Support" / APP_NAME
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg) if xdg else (home / ".local" / "share")
+    return base / APP_NAME
+
+
+def platform_tag() -> str:
+    system = platform.system().lower() or "unknown"
+    machine = (platform.machine() or "unknown").lower()
+    return f"{system}-{machine}"
+
+
+def python_exe() -> str:
+    """Interprete corrente (o quello del venv se disponibile)."""
+    return sys.executable or "python3"
+
+
+# ── UI ──────────────────────────────────────────────────────────────────────
+
+_LEVEL_ICON = {"info": "·", "ok": "✔", "warn": "!", "error": "✗"}
+
+
+class UI:
+    """Output leggibile (o JSON per l'automazione)."""
+
+    def __init__(self, *, json_mode: bool = False, quiet: bool = False, color: bool | None = None) -> None:
+        self.json_mode = json_mode
+        self.quiet = quiet
+        self.events: list[dict[str, str]] = []
+        if color is None:
+            color = sys.stdout.isatty() and not json_mode and os.environ.get("NO_COLOR") is None
+        self.color = bool(color)
+
+    def _paint(self, level: str, message: str) -> str:
+        if not self.color:
+            return f"{_LEVEL_ICON[level]} {message}"
+        codes = {"info": "36", "ok": "32", "warn": "33", "error": "31"}
+        return f"\033[{codes[level]}m{_LEVEL_ICON[level]}\033[0m {message}"
+
+    def emit(self, level: str, message: str) -> None:
+        self.events.append({"level": level, "message": message})
+        if self.json_mode or self.quiet:
+            return
+        print(self._paint(level, message))
+
+    def info(self, message: str) -> None:
+        self.emit("info", message)
+
+    def ok(self, message: str) -> None:
+        self.emit("ok", message)
+
+    def warn(self, message: str) -> None:
+        self.emit("warn", message)
+
+    def error(self, message: str) -> None:
+        self.emit("error", message)
+
+    def section(self, title: str) -> None:
+        if self.json_mode or self.quiet:
+            return
+        print(f"\n{title}" if self.color else f"\n== {title} ==")
+
+    def finish(self) -> None:
+        if self.json_mode:
+            print(json.dumps({"events": self.events}, ensure_ascii=False, indent=2))
+
+
+# ── esecuzione comandi ──────────────────────────────────────────────────────
+
+Runner = Callable[..., "subprocess.CompletedProcess[str]"]
+
+DRY_RUN = False
+
+
+def run_command(
+    cmd: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    check: bool = True,
+    capture: bool = False,
+    ui: UI | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Esegue un comando, rispettando ``--dry-run``."""
+    rendered = " ".join(str(c) for c in cmd)
+    if DRY_RUN:
+        if ui:
+            ui.info(f"[dry-run] {rendered}")
+        return subprocess.CompletedProcess(list(cmd), 0, "", "")
+    kwargs: dict[str, Any] = {"cwd": str(cwd) if cwd else None, "env": env}
+    if capture:
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        result = subprocess.run(list(cmd), check=False, **kwargs)  # noqa: S603
+    except FileNotFoundError as exc:
+        raise CommandError(f"comando non trovato: {cmd[0]}") from exc
+    if check and result.returncode != 0:
+        detail = ""
+        if capture and result.stdout:
+            detail = f": {result.stdout.strip()[-400:]}"
+        raise CommandError(f"comando fallito ({result.returncode}): {rendered}{detail}")
+    return result
+
+
+class CommandError(RuntimeError):
+    """Errore di esecuzione di un comando esterno."""
+
+
+# ── configurazione (noesis.env) ─────────────────────────────────────────────
+
+_ENV_LINE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
+
+
+def parse_env_file(text: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = _ENV_LINE.match(line)
+        if not match:
+            continue
+        key, value = match.group(1), match.group(2)
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+
+def config_path(data_dir: Path) -> Path:
+    return Path(data_dir) / "noesis.env"
+
+
+def load_config(data_dir: Path) -> dict[str, str]:
+    path = config_path(data_dir)
+    if not path.is_file():
+        return dict(DEFAULT_CONFIG)
+    values = dict(DEFAULT_CONFIG)
+    values.update(parse_env_file(path.read_text(encoding="utf-8")))
+    return values
+
+
+def render_config(values: dict[str, str]) -> str:
+    lines = [CONFIG_HEADER]
+    for key, value in values.items():
+        lines.append(f"{key}={value}")
+    lines.append("")
+    lines.append("# ── Segreti (solo da qui, mai nel codice) ───────────────────────")
+    lines.append("# OPENROUTER_API_KEY=")
+    return "\n".join(lines) + "\n"
+
+
+def save_config(data_dir: Path, values: dict[str, str], *, overwrite: bool = False) -> Path:
+    path = config_path(data_dir)
+    Path(data_dir).mkdir(parents=True, exist_ok=True)
+    if path.is_file() and not overwrite:
+        merged = load_config(data_dir)
+        merged.update({k: v for k, v in values.items()})
+        path.write_text(render_config(merged), encoding="utf-8")
+    else:
+        path.write_text(render_config(values), encoding="utf-8")
+    return path
+
+
+def resolve_host_port(args: argparse.Namespace, data_dir: Path) -> tuple[str, int]:
+    """Host/porta: opzione CLI > variabile d'ambiente > config > default."""
+    config = load_config(data_dir)
+    host = getattr(args, "host", None) or os.environ.get("HOST") or config.get("HOST", DEFAULT_HOST)
+    raw_port = getattr(args, "port", None) or os.environ.get("PORT") or config.get("PORT", DEFAULT_PORT)
+    return host, int(raw_port)
+
+
+def build_env(data_dir: Path, *, base: dict[str, str] | None = None, host: str | None = None, port: int | None = None) -> dict[str, str]:
+    """Ambiente per i processi figli: shell > config > default.
+
+    Le variabili già presenti nella shell vincono (utili per override puntuali,
+    es. ``ROLE=api ./noesis run``); il file di config fornisce i default.
+    """
+    env = dict(base if base is not None else os.environ)
+    for key, value in load_config(data_dir).items():
+        env.setdefault(key, value)
+    env.setdefault("DATA_DIR", str(data_dir))
+    if host:
+        env["HOST"] = host
+    if port:
+        env["PORT"] = str(port)
+    return env
+
+
+# ── percorsi ────────────────────────────────────────────────────────────────
+
+
+def service_venv() -> Path:
+    return REPO_ROOT / ".venv"
+
+
+def engine_venv() -> Path:
+    return REPO_ROOT / ".venv2"
+
+
+def engine_binary() -> Path | None:
+    """Trova ``pdf2zh_next``: env ``PDF2ZH_BIN`` → ``.venv2`` accanto al repo."""
+    override = os.environ.get("PDF2ZH_BIN")
+    if override and Path(override).expanduser().is_file():
+        return Path(override).expanduser()
+    exe = "pdf2zh_next.exe" if is_windows() else "pdf2zh_next"
+    for sub in ("bin", "Scripts"):
+        candidate = engine_venv() / sub / exe
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def logs_dir(data_dir: Path) -> Path:
+    return Path(data_dir) / "logs"
+
+
+def service_log(data_dir: Path) -> Path:
+    return logs_dir(data_dir) / "noesis.out"
+
+
+def pid_path(data_dir: Path) -> Path:
+    return Path(data_dir) / "noesis.pid"
+
+
+def cache_dir(data_dir: Path) -> Path:
+    return Path(data_dir) / "cache"
+
+
+def babeldoc_cache_dir() -> Path:
+    for key in BABELDOC_CACHE_ENV:
+        value = os.environ.get(key)
+        if value:
+            return Path(value)
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    base = Path(xdg) if xdg else (Path.home() / ".cache")
+    return base / "babeldoc"
+
+
+def ensure_data_dirs(data_dir: Path) -> None:
+    for path in (data_dir, cache_dir(data_dir), logs_dir(data_dir), Path(data_dir) / "documents"):
+        path.mkdir(parents=True, exist_ok=True)
+
+
+# ── uv ──────────────────────────────────────────────────────────────────────
+
+
+def find_uv() -> str | None:
+    found = shutil.which("uv")
+    if found:
+        return found
+    candidates = [Path.home() / ".local" / "bin" / "uv", Path.home() / ".cargo" / "bin" / "uv"]
+    if is_windows():
+        candidates.append(Path.home() / ".local" / "bin" / "uv.exe")
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def ensure_uv(ui: UI) -> str:
+    existing = find_uv()
+    if existing:
+        return existing
+    ui.info("uv non trovato: lo installo…")
+    if is_windows():
+        cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", f"irm {UV_INSTALL_PS1} | iex"]
+    else:
+        cmd = ["sh", "-c", f"curl -LsSf {UV_INSTALL_SH} | sh"]
+    run_command(cmd, check=True, ui=ui)
+    found = find_uv()
+    if not found:
+        raise CommandError(
+            "uv installato ma non trovato nel PATH: riapri il terminale o aggiungi ~/.local/bin al PATH"
+        )
+    ui.ok(f"uv installato: {found}")
+    return found
+
+
+# ── installazione venv e dipendenze ─────────────────────────────────────────
+
+
+def ensure_venv(uv: str, venv: Path, ui: UI) -> None:
+    if venv_python_in(venv).is_file():
+        return
+    ui.info(f"creo {venv.name} (Python {PYTHON_VERSION})…")
+    run_command([uv, "venv", "--python", PYTHON_VERSION, str(venv)], ui=ui)
+
+
+def install_requirements(uv: str, venv: Path, requirements: Iterable[str], ui: UI, *, offline: Path | None = None) -> None:
+    reqs = [str(REPO_ROOT / name) for name in requirements if (REPO_ROOT / name).is_file()]
+    if not reqs:
+        return
+    cmd = [uv, "pip", "install", "--python", str(venv_python_in(venv)), "-q"]
+    if offline is not None:
+        cmd += ["--no-index", "--find-links", str(offline)]
+    for req in reqs:
+        cmd += ["-r", req]
+    run_command(cmd, ui=ui)
+
+
+def ensure_service_venv(uv: str, ui: UI, *, offline: Path | None = None) -> None:
+    venv = service_venv()
+    ensure_venv(uv, venv, ui)
+    ui.info("installo le dipendenze del servizio…")
+    install_requirements(uv, venv, [REQUIREMENTS], ui, offline=offline)
+
+
+def ensure_engine_venv(uv: str, ui: UI, *, offline: Path | None = None) -> None:
+    venv = engine_venv()
+    ensure_venv(uv, venv, ui)
+    ui.info("installo il motore pdf2zh_next (può richiedere qualche minuto)…")
+    install_requirements(uv, venv, [REQUIREMENTS_ENGINE], ui, offline=offline)
+
+
+def warm_engine(ui: UI) -> bool:
+    """Pre-warm best effort dei modelli BabelDOC (scarica al primo uso)."""
+    binary = engine_binary()
+    if binary is None:
+        ui.warn("motore non trovato: salto il pre-warm")
+        return False
+    ui.info("pre-warm dei modelli del motore (best effort)…")
+    try:
+        run_command([str(binary), "--version"], check=False, capture=True, ui=ui)
+    except CommandError:
+        return False
+    ui.ok("pre-warm completato")
+    return True
+
+
+# ── rete: IP e URL ──────────────────────────────────────────────────────────
+
+
+def local_ip() -> str | None:
+    """IP primario della macchina (per l'URL in LAN)."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))
+        return sock.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
+def server_urls(host: str, port: int) -> list[str]:
+    urls: list[str] = []
+    local = f"http://127.0.0.1:{port}"
+    urls.append(local)
+    if host in {"0.0.0.0", "::"}:
+        ip = local_ip()
+        if ip and f"http://{ip}:{port}" != local:
+            urls.append(f"http://{ip}:{port}")
+    elif host not in {"127.0.0.1", "localhost"}:
+        urls.append(f"http://{host}:{port}")
+    return urls
+
+
+def health_check(host: str, port: int, timeout: float = 2.0) -> bool:
+    probe_host = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+    try:
+        with urllib.request.urlopen(f"http://{probe_host}:{port}/api/v1/health", timeout=timeout) as response:
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+# ── gestione processo (background) ──────────────────────────────────────────
+
+
+def read_pid(data_dir: Path) -> int | None:
+    path = pid_path(data_dir)
+    if not path.is_file():
+        return None
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except (ValueError, OSError):
+        return None
+
+
+def write_pid(data_dir: Path, pid: int) -> None:
+    pid_path(data_dir).write_text(str(pid), encoding="utf-8")
+
+
+def remove_pid(data_dir: Path) -> None:
+    try:
+        pid_path(data_dir).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def process_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if is_windows():
+        result = run_command(["tasklist", "/FI", f"PID eq {pid}"], check=False, capture=True)
+        return str(pid) in (result.stdout or "")
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def uvicorn_command(venv: Path, host: str, port: int) -> list[str]:
+    return [
+        str(venv_python_in(venv)),
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--workers",
+        "1",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+
+
+def start_background(data_dir: Path, ui: UI, *, host: str, port: int) -> int:
+    """Avvia il server in background, log su file, PID su file."""
+    if read_pid(data_dir) and process_alive(read_pid(data_dir) or 0):
+        ui.info("servizio già attivo")
+        return 0
+    ensure_data_dirs(data_dir)
+    env = build_env(data_dir, host=host, port=port)
+    log = service_log(data_dir)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    cmd = uvicorn_command(service_venv(), host, port)
+    if DRY_RUN:
+        ui.info(f"[dry-run] {' '.join(cmd)} > {log}")
+        return 0
+    with open(log, "ab") as handle:
+        kwargs: dict[str, Any] = {"cwd": str(REPO_ROOT), "env": env, "stdout": handle, "stderr": subprocess.STDOUT}
+        if is_windows():
+            kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+        process = subprocess.Popen(cmd, **kwargs)  # noqa: S603
+    write_pid(data_dir, process.pid)
+    ui.ok(f"servizio avviato (pid {process.pid})")
+    return process.pid
+
+
+def stop_background(data_dir: Path, ui: UI, *, timeout: float = STOP_TIMEOUT) -> bool:
+    pid = read_pid(data_dir)
+    if not pid:
+        ui.info("nessun PID registrato: niente da fermare")
+        return False
+    if not process_alive(pid):
+        remove_pid(data_dir)
+        ui.info("processo non attivo: pulisco il PID")
+        return False
+    if DRY_RUN:
+        ui.info(f"[dry-run] stop pid {pid}")
+        return True
+    if is_windows():
+        run_command(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, ui=ui)
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            remove_pid(data_dir)
+            return False
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not process_alive(pid):
+                break
+            time.sleep(0.3)
+        else:
+            with _suppress():
+                os.kill(pid, signal.SIGKILL)
+    remove_pid(data_dir)
+    ui.ok("servizio fermato")
+    return True
+
+
+class _suppress:
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *exc: Any) -> bool:
+        return True
+
+
+# ── servizio di sistema (systemd / launchd / Task Scheduler) ────────────────
+
+
+@dataclass
+class ServiceSpec:
+    repo_root: Path
+    venv_python: Path
+    host: str
+    port: int
+    env_file: Path
+    data_dir: Path
+    role: str = "all"
+    user: str = ""
+
+
+def systemd_unit_text(spec: ServiceSpec, *, system: bool = False) -> str:
+    target = "multi-user.target" if system else "default.target"
+    user_line = f"User={spec.user}\n" if (system and spec.user) else ""
+    return (
+        "[Unit]\n"
+        f"Description=Noesis PDF Cloner Service\n"
+        "After=network.target\n\n"
+        "[Service]\n"
+        "Type=simple\n"
+        f"WorkingDirectory={spec.repo_root}\n"
+        f"{user_line}"
+        f"EnvironmentFile={spec.env_file}\n"
+        f"Environment=ROLE={spec.role}\n"
+        f"ExecStart={spec.venv_python} -m uvicorn app.main:app --workers 1 "
+        f"--host {spec.host} --port {spec.port}\n"
+        "Restart=always\n"
+        "RestartSec=3\n"
+        "NoNewPrivileges=true\n\n"
+        "[Install]\n"
+        f"WantedBy={target}\n"
+    )
+
+
+def launchd_plist_text(spec: ServiceSpec, env: dict[str, str]) -> str:
+    def args() -> str:
+        values = [
+            str(spec.venv_python), "-m", "uvicorn", "app.main:app",
+            "--workers", "1", "--host", spec.host, "--port", str(spec.port),
+        ]
+        return "".join(f"        <string>{v}</string>\n" for v in values)
+
+    env_items = "".join(
+        f"        <key>{key}</key>\n        <string>{value}</string>\n"
+        for key, value in sorted(env.items())
+    )
+    log = spec.data_dir / "logs" / "noesis.out"
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n<dict>\n'
+        f"    <key>Label</key>\n    <string>{SERVICE_LABEL}</string>\n"
+        "    <key>ProgramArguments</key>\n    <array>\n"
+        f"{args()}"
+        "    </array>\n"
+        f"    <key>WorkingDirectory</key>\n    <string>{spec.repo_root}</string>\n"
+        "    <key>EnvironmentVariables</key>\n    <dict>\n"
+        f"{env_items}"
+        "    </dict>\n"
+        "    <key>RunAtLoad</key>\n    <true/>\n"
+        "    <key>KeepAlive</key>\n    <true/>\n"
+        f"    <key>StandardOutPath</key>\n    <string>{log}</string>\n"
+        f"    <key>StandardErrorPath</key>\n    <string>{log}</string>\n"
+        "</dict>\n</plist>\n"
+    )
+
+
+def windows_runner_text(spec: ServiceSpec, env: dict[str, str]) -> str:
+    lines = ["@echo off", "setlocal"]
+    for key, value in sorted(env.items()):
+        lines.append(f"set {key}={value}")
+    args = " ".join(
+        f'"{v}"' for v in [
+            str(spec.venv_python), "-m", "uvicorn", "app.main:app",
+            "--workers", "1", "--host", spec.host, "--port", str(spec.port),
+        ]
+    )
+    lines.append(f'cd /d "{spec.repo_root}"')
+    lines.append(args)
+    return "\r\n".join(lines) + "\r\n"
+
+
+class ServiceController:
+    """Astrazione del servizio: systemd (user/system), launchd, Task Scheduler."""
+
+    def __init__(self, data_dir: Path, ui: UI, *, system: bool = False, spec: ServiceSpec | None = None) -> None:
+        self.data_dir = Path(data_dir)
+        self.ui = ui
+        self.system = system
+        self.spec = spec
+
+    # -- rilevamento --------------------------------------------------------
+    def kind(self) -> str:
+        if is_macos():
+            return "launchd"
+        if is_windows():
+            return "schtasks"
+        if shutil.which("systemctl"):
+            if self.system:
+                return "systemd-system"
+            if self._user_systemd_available():
+                return "systemd-user"
+        return "none"
+
+    @staticmethod
+    def _user_systemd_available() -> bool:
+        if not shutil.which("systemctl"):
+            return False
+        if os.environ.get("XDG_RUNTIME_DIR"):
+            return True
+        try:
+            return Path(f"/run/user/{os.getuid()}/systemd").exists()
+        except (AttributeError, OSError):  # pragma: no cover - non unix
+            return False
+
+    # -- percorsi -----------------------------------------------------------
+    def systemd_unit_path(self) -> Path:
+        if self.system:
+            return Path("/etc/systemd/system") / f"{SERVICE_NAME}.service"
+        return Path.home() / ".config" / "systemd" / "user" / f"{SERVICE_NAME}.service"
+
+    def plist_path(self) -> Path:
+        return Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
+
+    def windows_runner_path(self) -> Path:
+        return self.data_dir / "service" / "run.cmd"
+
+    # -- installazione ------------------------------------------------------
+    def install(self) -> None:
+        assert self.spec is not None, "ServiceSpec richiesto"
+        kind = self.kind()
+        if DRY_RUN:
+            self.ui.info(f"[dry-run] installerei il servizio ({kind})")
+            return
+        if kind == "systemd-user":
+            path = self.systemd_unit_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(systemd_unit_text(self.spec, system=False), encoding="utf-8")
+            self._run(["systemctl", "--user", "daemon-reload"])
+            self._run(["systemctl", "--user", "enable", "--now", SERVICE_NAME])
+            self._enable_linger()
+            self.ui.ok(f"servizio systemd (user) installato: {path}")
+        elif kind == "systemd-system":
+            path = self.systemd_unit_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(systemd_unit_text(self.spec, system=True), encoding="utf-8")
+            self._run(["systemctl", "daemon-reload"])
+            self._run(["systemctl", "enable", "--now", SERVICE_NAME])
+            self.ui.ok(f"servizio systemd (system) installato: {path}")
+        elif kind == "launchd":
+            path = self.plist_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(launchd_plist_text(self.spec, self._env()), encoding="utf-8")
+            self._run(["launchctl", "unload", str(path)], check=False)
+            self._run(["launchctl", "load", "-w", str(path)])
+            self.ui.ok(f"agente launchd installato: {path}")
+        elif kind == "schtasks":
+            path = self.windows_runner_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(windows_runner_text(self.spec, self._env()), encoding="utf-8")
+            self._run(["schtasks", "/Create", "/TN", SERVICE_NAME, "/SC", "ONLOGON",
+                       "/RL", "LIMITED", "/TR", str(path), "/F"])
+            self._run(["schtasks", "/Run", "/TN", SERVICE_NAME], check=False)
+            self.ui.ok(f"attività pianificata installata: {path}")
+        else:
+            self.ui.warn(
+                "nessun gestore di servizi disponibile (systemd/launchd/Task Scheduler): "
+                "avvio il server in background. Per l'autostart abilita systemd in WSL "
+                "(systemd=true in /etc/wsl.conf) o usa `noesis start`."
+            )
+            start_background(self.data_dir, self.ui, host=self.spec.host, port=self.spec.port)
+
+    def uninstall(self) -> None:
+        kind = self.kind()
+        if DRY_RUN:
+            self.ui.info(f"[dry-run] rimuoverei il servizio ({kind})")
+            return
+        if kind == "systemd-user":
+            self._run(["systemctl", "--user", "disable", "--now", SERVICE_NAME], check=False)
+            _unlink(self.systemd_unit_path())
+            self._run(["systemctl", "--user", "daemon-reload"], check=False)
+        elif kind == "systemd-system":
+            self._run(["systemctl", "disable", "--now", SERVICE_NAME], check=False)
+            _unlink(self.systemd_unit_path())
+            self._run(["systemctl", "daemon-reload"], check=False)
+        elif kind == "launchd":
+            self._run(["launchctl", "unload", "-w", str(self.plist_path())], check=False)
+            _unlink(self.plist_path())
+        elif kind == "schtasks":
+            self._run(["schtasks", "/End", "/TN", SERVICE_NAME], check=False)
+            self._run(["schtasks", "/Delete", "/TN", SERVICE_NAME, "/F"], check=False)
+            _unlink(self.windows_runner_path())
+        self.ui.ok("servizio rimosso")
+
+    def status(self) -> str:
+        kind = self.kind()
+        if kind == "systemd-user":
+            result = self._run(["systemctl", "--user", "is-active", SERVICE_NAME], check=False, capture=True)
+            return (result.stdout or "").strip() or "unknown"
+        if kind == "systemd-system":
+            result = self._run(["systemctl", "is-active", SERVICE_NAME], check=False, capture=True)
+            return (result.stdout or "").strip() or "unknown"
+        if kind == "launchd":
+            result = self._run(["launchctl", "list"], check=False, capture=True)
+            return "loaded" if SERVICE_LABEL in (result.stdout or "") else "not-loaded"
+        if kind == "schtasks":
+            result = self._run(["schtasks", "/Query", "/TN", SERVICE_NAME], check=False, capture=True)
+            return "registered" if result.returncode == 0 else "not-registered"
+        return "none"
+
+    def _env(self) -> dict[str, str]:
+        return build_env(self.data_dir)
+
+    def _enable_linger(self) -> None:
+        user = os.environ.get("USER") or os.environ.get("LOGNAME")
+        if user:
+            self._run(["loginctl", "enable-linger", user], check=False)
+
+    def _run(self, cmd: Sequence[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
+        return run_command(cmd, check=check, capture=capture, ui=self.ui)
+
+
+def _unlink(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+# ── firewall ────────────────────────────────────────────────────────────────
+
+
+def detect_firewall() -> str | None:
+    if is_windows():
+        return "windows"
+    if is_macos():
+        return "macos"
+    if shutil.which("ufw"):
+        return "ufw"
+    if shutil.which("firewall-cmd"):
+        return "firewalld"
+    return None
+
+
+def firewall_open_command(fw: str, port: int) -> list[str] | None:
+    if fw == "ufw":
+        return ["sudo", "ufw", "allow", f"{port}/tcp"]
+    if fw == "firewalld":
+        return ["sudo", "firewall-cmd", "--permanent", "--add-port", f"{port}/tcp"]
+    if fw == "windows":
+        return ["netsh", "advfirewall", "firewall", "add", "rule",
+                f"name=Noesis PDF Cloner {port}", "dir=in", "action=allow",
+                "protocol=TCP", f"localport={port}"]
+    return None
+
+
+# ── doctor ──────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class Check:
+    level: str  # ok | warn | error
+    message: str
+
+
+def doctor_checks(data_dir: Path) -> list[Check]:
+    checks: list[Check] = []
+    config = load_config(data_dir)
+    host = os.environ.get("HOST", config.get("HOST", DEFAULT_HOST))
+    port = int(os.environ.get("PORT", config.get("PORT", DEFAULT_PORT)))
+
+    checks.append(Check("ok", f"piattaforma: {platform.system()} {platform.machine()}"
+                             + (" (WSL)" if is_wsl() else "")))
+
+    uv = find_uv()
+    checks.append(Check("ok" if uv else "warn", f"uv: {uv or 'non trovato (verrà installato da `noesis install`)'}"))
+
+    if venv_python_in(service_venv()).is_file():
+        result = run_command([str(venv_python_in(service_venv())), "-c",
+                              "import fastapi, uvicorn, fitz"], check=False, capture=True)
+        checks.append(Check("ok" if result.returncode == 0 else "error",
+                            "venv servizio: dipendenze presenti" if result.returncode == 0
+                            else "venv servizio: dipendenze mancanti (esegui `noesis install`)"))
+    else:
+        checks.append(Check("warn", "venv servizio assente (esegui `noesis install`)"))
+
+    if venv_python_in(engine_venv()).is_file():
+        binary = engine_binary()
+        checks.append(Check("ok" if binary else "warn",
+                            f"motore: {binary}" if binary else "venv motore presente ma pdf2zh_next assente"))
+    else:
+        checks.append(Check("warn", "venv motore assente (esegui `noesis install`)"))
+
+    checks.append(Check("ok" if config_path(data_dir).is_file() else "warn",
+                        f"config: {config_path(data_dir)}" if config_path(data_dir).is_file()
+                        else "config assente (verrà creata da `noesis install`)"))
+
+    try:
+        ensure_data_dirs(data_dir)
+        probe = data_dir / ".write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        checks.append(Check("ok", f"cartella dati scrivibile: {data_dir}"))
+    except OSError as exc:
+        checks.append(Check("error", f"cartella dati non scrivibile ({data_dir}): {exc}"))
+
+    usage = shutil.disk_usage(str(data_dir))
+    free_gb = usage.free / (1024 ** 3)
+    checks.append(Check("ok" if free_gb >= 2 else "warn", f"spazio libero: {free_gb:.1f} GB"))
+
+    if health_check(host, port):
+        checks.append(Check("ok", f"server raggiungibile su {host}:{port}"))
+    elif read_pid(data_dir) and process_alive(read_pid(data_dir) or 0):
+        checks.append(Check("warn", "processo attivo ma /health non risponde ancora"))
+    else:
+        checks.append(Check("warn", "server non in esecuzione (`noesis start`)"))
+
+    fw = detect_firewall()
+    if fw in {"ufw", "firewalld"}:
+        checks.append(Check("info" if fw == "ufw" else "warn",
+                            f"firewall rilevato: {fw} — apri la porta con `noesis install --open-firewall`"))
+    if is_wsl():
+        checks.append(Check("warn",
+                            "WSL: dalla LAN la porta non è visibile senza networkingMode=mirrored "
+                            "(Windows 11) o un portproxy; in locale funziona."))
+
+    fonts = _font_count()
+    if fonts is not None:
+        checks.append(Check("ok" if fonts >= 50 else "warn",
+                            f"font di sistema: {fonts}" + ("" if fonts >= 50 else " (pochi: il typesetting potrebbe degradare)")))
+
+    for url in server_urls(host, port):
+        checks.append(Check("ok", f"URL: {url}"))
+    return checks
+
+
+def _font_count() -> int | None:
+    if is_windows():
+        return None
+    if shutil.which("fc-list") is None:
+        return None
+    result = run_command(["fc-list"], check=False, capture=True)
+    if result.returncode != 0:
+        return None
+    return len([line for line in (result.stdout or "").splitlines() if line.strip()])
+
+
+# ── bundle offline ──────────────────────────────────────────────────────────
+
+
+def bundle_manifest(data_dir: Path, wheelhouse: Path, models: Path | None) -> dict[str, Any]:
+    wheels = sorted(p.name for p in wheelhouse.glob("*")) if wheelhouse.is_dir() else []
+    return {
+        "app": APP_NAME,
+        "platform": platform_tag(),
+        "python": PYTHON_VERSION,
+        "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "wheels": len(wheels),
+        "models": bool(models and models.is_dir()),
+    }
+
+
+def download_wheels(uv: str, dest: Path, ui: UI) -> None:
+    """Scarica tutti i wheel necessari (servizio + motore) in ``dest``."""
+    dest.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="noesis-wheels-") as tmp:
+        helper = Path(tmp) / "helper"
+        ensure_venv(uv, helper, ui)
+        run_command([uv, "pip", "install", "--python", str(venv_python_in(helper)), "-q", "pip"], ui=ui)
+        cmd = [str(venv_python_in(helper)), "-m", "pip", "download", "-d", str(dest)]
+        for name in (REQUIREMENTS, REQUIREMENTS_ENGINE):
+            if (REPO_ROOT / name).is_file():
+                cmd += ["-r", str(REPO_ROOT / name)]
+        run_command(cmd, ui=ui)
+
+
+def create_bundle(uv: str, data_dir: Path, output: Path, ui: UI) -> Path:
+    if DRY_RUN:
+        ui.info(f"[dry-run] creerei il bundle in {output}")
+        return Path(output)
+    with tempfile.TemporaryDirectory(prefix="noesis-bundle-") as tmp:
+        staging = Path(tmp) / "noesis-bundle"
+        staging.mkdir(parents=True, exist_ok=True)
+        ui.info("scarico i wheel (servizio + motore)…")
+        download_wheels(uv, staging / "wheelhouse", ui)
+
+        models = babeldoc_cache_dir()
+        models_present = models.is_dir()
+        if models_present:
+            ui.info("includo i modelli del motore…")
+            shutil.copytree(models, staging / "models" / "babeldoc")
+
+        manifest = bundle_manifest(data_dir, staging / "wheelhouse", models if models_present else None)
+        (staging / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(output, "w:gz") as archive:
+            archive.add(staging, arcname="noesis-bundle")
+    ui.ok(f"bundle creato: {output}")
+    return output
+
+
+def install_from_bundle(uv: str, data_dir: Path, archive_path: Path, ui: UI) -> None:
+    archive_path = Path(archive_path)
+    if not archive_path.is_file():
+        raise CommandError(f"bundle non trovato: {archive_path}")
+    with tempfile.TemporaryDirectory(prefix="noesis-bundle-") as tmp:
+        with tarfile.open(archive_path, "r:*") as archive:
+            try:
+                archive.extractall(tmp, filter="data")
+            except TypeError:  # Python < 3.12
+                archive.extractall(tmp)
+        root = Path(tmp) / "noesis-bundle"
+        wheelhouse = root / "wheelhouse"
+        ui.info("installo offline dal bundle…")
+        ensure_service_venv(uv, ui, offline=wheelhouse)
+        ensure_engine_venv(uv, ui, offline=wheelhouse)
+        models = root / "models" / "babeldoc"
+        if models.is_dir():
+            target = babeldoc_cache_dir()
+            if target.exists():
+                shutil.rmtree(target)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(models, target)
+            ui.ok(f"modelli ripristinati in {target}")
+    ui.ok("installazione da bundle completata")
+
+
+# ── comandi ─────────────────────────────────────────────────────────────────
+
+
+def cmd_install(args: argparse.Namespace, ui: UI) -> int:
+    data_dir = Path(args.data_dir).expanduser()
+    host, port = resolve_host_port(args, data_dir)
+    if DRY_RUN:
+        ui.info(f"[dry-run] cartella dati: {data_dir}")
+    else:
+        ensure_data_dirs(data_dir)
+        save_config(data_dir, {
+            "HOST": host,
+            "PORT": str(port),
+        })
+    uv = ensure_uv(ui)
+    if args.bundle:
+        install_from_bundle(uv, data_dir, Path(args.bundle), ui)
+    else:
+        ensure_service_venv(uv, ui)
+        if not args.no_engine:
+            ensure_engine_venv(uv, ui)
+    if not args.no_engine and not args.skip_warm and not args.bundle:
+        warm_engine(ui)
+    _maybe_open_firewall(args, ui, port=port)
+    if not args.no_service:
+        spec = _service_spec(data_dir, host=host, port=port)
+        ServiceController(data_dir, ui, system=args.mode == "system", spec=spec).install()
+    _print_summary(data_dir, ui, host=host, port=port)
+    if not args.no_browser and not args.ci and has_display():
+        _open_browser(host, port, ui)
+    return 0
+
+
+def _service_spec(data_dir: Path, *, host: str, port: int) -> ServiceSpec:
+    role = os.environ.get("ROLE") or load_config(data_dir).get("ROLE", "all")
+    return ServiceSpec(
+        repo_root=REPO_ROOT,
+        venv_python=venv_python_in(service_venv()),
+        host=host,
+        port=port,
+        env_file=config_path(data_dir),
+        data_dir=data_dir,
+        role=role,
+        user=os.environ.get("USER") or os.environ.get("LOGNAME") or "",
+    )
+
+
+def _maybe_open_firewall(args: argparse.Namespace, ui: UI, *, port: int) -> None:
+    fw = detect_firewall()
+    if fw in {"ufw", "firewalld"}:
+        command = firewall_open_command(fw, port)
+        if args.open_firewall and command:
+            run_command(command, check=False, ui=ui)
+            if fw == "firewalld":
+                run_command(["sudo", "firewall-cmd", "--reload"], check=False, ui=ui)
+            ui.ok(f"porta {port}/tcp aperta ({fw})")
+        else:
+            ui.warn(f"firewall {fw} rilevato: per la LAN apri la porta con `noesis install --open-firewall`")
+    elif fw == "windows":
+        ui.warn("firewall Windows: per la LAN esegui `noesis install --open-firewall` (da terminale admin)")
+
+
+def _print_summary(data_dir: Path, ui: UI, *, host: str, port: int) -> None:
+    ui.section("Riepilogo")
+    ui.info(f"cartella dati: {data_dir}")
+    ui.info(f"config: {config_path(data_dir)}")
+    ui.info(f"log: {service_log(data_dir)}")
+    for url in server_urls(host, port):
+        ui.ok(f"URL: {url}")
+    if not health_check(host, port):
+        ui.info("avvia con `noesis start` (o `noesis service status`)")
+
+
+def cmd_start(args: argparse.Namespace, ui: UI) -> int:
+    data_dir = Path(args.data_dir).expanduser()
+    ensure_data_dirs(data_dir)
+    host, port = resolve_host_port(args, data_dir)
+    if not venv_python_in(service_venv()).is_file():
+        ui.error("venv assente: esegui prima `noesis install`")
+        return 2
+    start_background(data_dir, ui, host=host, port=port)
+    return 0
+
+
+def cmd_stop(args: argparse.Namespace, ui: UI) -> int:
+    stop_background(Path(args.data_dir).expanduser(), ui)
+    return 0
+
+
+def cmd_restart(args: argparse.Namespace, ui: UI) -> int:
+    cmd_stop(args, ui)
+    return cmd_start(args, ui)
+
+
+def cmd_status(args: argparse.Namespace, ui: UI) -> int:
+    data_dir = Path(args.data_dir).expanduser()
+    host, port = resolve_host_port(args, data_dir)
+    pid = read_pid(data_dir)
+    running = bool(pid and process_alive(pid))
+    healthy = health_check(host, port)
+    if running:
+        ui.ok(f"processo attivo (pid {pid})" + (", /health ok" if healthy else ", /health non risponde"))
+    else:
+        ui.info("processo non attivo")
+    controller = ServiceController(data_dir, ui)
+    kind = controller.kind()
+    if kind != "none":
+        ui.info(f"servizio {kind}: {controller.status()}")
+    return 0 if running else 1
+
+
+def cmd_logs(args: argparse.Namespace, ui: UI) -> int:
+    data_dir = Path(args.data_dir).expanduser()
+    log = service_log(data_dir)
+    if not log.is_file():
+        ui.warn(f"nessun log: {log}")
+        return 1
+    text = log.read_text(encoding="utf-8", errors="replace").splitlines()
+    lines = text[-args.lines:]
+    for line in lines:
+        print(line)
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace, ui: UI) -> int:
+    data_dir = Path(args.data_dir).expanduser()
+    checks = doctor_checks(data_dir)
+    for check in checks:
+        ui.emit(check.level if check.level in _LEVEL_ICON else "info", check.message)
+    errors = sum(1 for c in checks if c.level == "error")
+    warns = sum(1 for c in checks if c.level == "warn")
+    if errors or (args.strict and warns):
+        ui.error(f"doctor: {errors} errori, {warns} avvisi")
+        return 1
+    ui.ok(f"doctor: tutto ok ({warns} avvisi)")
+    return 0
+
+
+def cmd_open(args: argparse.Namespace, ui: UI) -> int:
+    data_dir = Path(args.data_dir).expanduser()
+    host, port = resolve_host_port(args, data_dir)
+    urls = server_urls(host, port)
+    target = urls[-1]
+    ui.info(f"apro {target}")
+    if not DRY_RUN:
+        webbrowser.open(target)
+    return 0
+
+
+def cmd_service(args: argparse.Namespace, ui: UI) -> int:
+    data_dir = Path(args.data_dir).expanduser()
+    ensure_data_dirs(data_dir)
+    host, port = resolve_host_port(args, data_dir)
+    spec = _service_spec(data_dir, host=host, port=port)
+    controller = ServiceController(data_dir, ui, system=args.mode == "system", spec=spec)
+    action = args.action or "status"
+    if action == "install":
+        controller.install()
+    elif action == "uninstall":
+        controller.uninstall()
+    elif action == "status":
+        ui.info(f"tipo: {controller.kind()}")
+        ui.info(f"stato: {controller.status()}")
+    else:
+        ui.error(f"azione sconosciuta: {action}")
+        return 2
+    return 0
+
+
+def cmd_bundle(args: argparse.Namespace, ui: UI) -> int:
+    uv = ensure_uv(ui)
+    output = Path(args.output or (REPO_ROOT / "dist" / f"noesis-bundle-{platform_tag()}.tar.gz"))
+    create_bundle(uv, Path(args.data_dir).expanduser(), output, ui)
+    return 0
+
+
+def cmd_update(args: argparse.Namespace, ui: UI) -> int:
+    if (REPO_ROOT / ".git").is_dir() and shutil.which("git"):
+        ui.info("aggiorno il codice (git pull)…")
+        run_command(["git", "-C", str(REPO_ROOT), "pull", "--ff-only"], check=False, ui=ui)
+    uv = ensure_uv(ui)
+    ensure_service_venv(uv, ui)
+    if not args.no_engine:
+        ensure_engine_venv(uv, ui)
+    ui.ok("aggiornamento completato; riavvia con `noesis restart`")
+    return 0
+
+
+def cmd_uninstall(args: argparse.Namespace, ui: UI) -> int:
+    data_dir = Path(args.data_dir).expanduser()
+    host, port = resolve_host_port(args, data_dir)
+    stop_background(data_dir, ui)
+    ServiceController(data_dir, ui, system=args.mode == "system", spec=_service_spec(data_dir, host=host, port=port)).uninstall()
+    if args.purge:
+        shutil.rmtree(data_dir, ignore_errors=True)
+        ui.ok(f"dati rimossi: {data_dir}")
+    else:
+        ui.info(f"dati conservati in {data_dir} (usa --purge per rimuoverli)")
+    return 0
+
+
+def cmd_run(args: argparse.Namespace, ui: UI) -> int:
+    """Avvia il server in primo piano (usato dai wrapper e per il debug)."""
+    data_dir = Path(args.data_dir).expanduser()
+    ensure_data_dirs(data_dir)
+    uv = ensure_uv(ui)
+    ensure_service_venv(uv, ui)
+    host, port = resolve_host_port(args, data_dir)
+    env = build_env(data_dir, host=host, port=port)
+    cmd = uvicorn_command(service_venv(), host, port)
+    if DRY_RUN:
+        ui.info(f"[dry-run] {' '.join(cmd)}")
+        return 0
+    os.execvpe(cmd[0], cmd, env)
+    return 0  # pragma: no cover
+
+
+def cmd_worker(args: argparse.Namespace, ui: UI) -> int:
+    """Avvia un processo worker in primo piano (coda condivisa su DB)."""
+    data_dir = Path(args.data_dir).expanduser()
+    ensure_data_dirs(data_dir)
+    uv = ensure_uv(ui)
+    ensure_service_venv(uv, ui)
+    env = build_env(data_dir)
+    cmd = [str(venv_python_in(service_venv())), "-m", "app.worker_main"]
+    if DRY_RUN:
+        ui.info(f"[dry-run] {' '.join(cmd)}")
+        return 0
+    os.execvpe(cmd[0], cmd, env)
+    return 0  # pragma: no cover
+
+
+def cmd_cli(args: argparse.Namespace, ui: UI) -> int:
+    """Delega alla CLI headless (app.cli), passando gli argomenti."""
+    data_dir = Path(args.data_dir).expanduser()
+    uv = ensure_uv(ui)
+    ensure_service_venv(uv, ui)
+    env = build_env(data_dir)
+    cmd = [str(venv_python_in(service_venv())), "-m", "app.cli", *args.extra]
+    if DRY_RUN:
+        ui.info(f"[dry-run] {' '.join(cmd)}")
+        return 0
+    os.execvpe(cmd[0], cmd, env)
+    return 0  # pragma: no cover
+
+
+def _open_browser(host: str, port: int, ui: UI) -> None:
+    target = server_urls(host, port)[-1]
+    try:
+        webbrowser.open(target)
+    except Exception:  # pragma: no cover - best effort
+        ui.warn(f"non riesco ad aprire il browser: {target}")
+
+
+# ── CLI ─────────────────────────────────────────────────────────────────────
+
+
+def _common(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--data-dir", default=str(default_data_dir()), help="cartella dati (default: standard OS)")
+    parser.add_argument("--host", default=None, help="bind (default da config: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=None, help=f"porta (default da config: {DEFAULT_PORT})")
+    parser.add_argument("--mode", choices=["user", "system"], default="user", help="servizio utente o di sistema")
+    parser.add_argument("--json", action="store_true", help="output JSON")
+    parser.add_argument("--quiet", action="store_true", help="output minimo")
+    parser.add_argument("--dry-run", action="store_true", help="mostra i comandi senza eseguirli")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="noesis", description="Console di installazione e gestione di noesis-pdf-cloner-service")
+    parser.add_argument("--version", action="version", version="noesis console")
+    sub = parser.add_subparsers(dest="command")
+
+    install = sub.add_parser("install", help="installa venv, motore, config e servizio")
+    _common(install)
+    install.add_argument("--no-service", action="store_true", help="non installare il servizio")
+    install.add_argument("--no-engine", action="store_true", help="non installare il motore pdf2zh_next")
+    install.add_argument("--skip-warm", action="store_true", help="non scaricare i modelli ora")
+    install.add_argument("--no-browser", action="store_true", help="non aprire il browser")
+    install.add_argument("--open-firewall", action="store_true", help="apri la porta nel firewall (sudo)")
+    install.add_argument("--bundle", default="", help="installa offline da un bundle")
+    install.add_argument("--ci", action="store_true", help="modalità non interattiva (nessun prompt/browser)")
+
+    for name, help_text in (("start", "avvia in background"), ("stop", "ferma"), ("restart", "riavvia")):
+        p = sub.add_parser(name, help=help_text)
+        _common(p)
+
+    status = sub.add_parser("status", help="stato del servizio")
+    _common(status)
+
+    logs = sub.add_parser("logs", help="mostra gli ultimi log")
+    _common(logs)
+    logs.add_argument("-n", "--lines", type=int, default=80)
+
+    doctor = sub.add_parser("doctor", help="diagnosi dell'installazione")
+    _common(doctor)
+    doctor.add_argument("--strict", action="store_true", help="esci con errore anche sugli avvisi")
+
+    openp = sub.add_parser("open", help="apri il frontend nel browser")
+    _common(openp)
+
+    service = sub.add_parser("service", help="gestisci il servizio di sistema")
+    _common(service)
+    service.add_argument("action", nargs="?", choices=["install", "uninstall", "status"], default="status")
+
+    bundle = sub.add_parser("bundle", help="crea un pacchetto offline")
+    _common(bundle)
+    bundle.add_argument("-o", "--output", default="")
+
+    update = sub.add_parser("update", help="aggiorna codice e dipendenze")
+    _common(update)
+    update.add_argument("--no-engine", action="store_true")
+
+    uninstall = sub.add_parser("uninstall", help="rimuovi il servizio")
+    _common(uninstall)
+    uninstall.add_argument("--purge", action="store_true", help="rimuovi anche i dati")
+
+    runp = sub.add_parser("run", help="server in primo piano (debug/wrapper)")
+    _common(runp)
+
+    workerp = sub.add_parser("worker", help="worker in primo piano (coda condivisa)")
+    _common(workerp)
+
+    clip = sub.add_parser("cli", help="CLI headless (app.cli)")
+    clip.add_argument("--data-dir", default=str(default_data_dir()))
+    clip.add_argument("extra", nargs=argparse.REMAINDER)
+
+    return parser
+
+
+_HANDLERS: dict[str, Callable[[argparse.Namespace, UI], int]] = {
+    "install": cmd_install,
+    "start": cmd_start,
+    "stop": cmd_stop,
+    "restart": cmd_restart,
+    "status": cmd_status,
+    "logs": cmd_logs,
+    "doctor": cmd_doctor,
+    "open": cmd_open,
+    "service": cmd_service,
+    "bundle": cmd_bundle,
+    "update": cmd_update,
+    "uninstall": cmd_uninstall,
+    "run": cmd_run,
+    "worker": cmd_worker,
+    "cli": cmd_cli,
+}
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    global DRY_RUN
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # `cli` è passthrough puro verso app.cli: non passa da argparse.
+    if argv and argv[0] == "cli":
+        ui = UI()
+        try:
+            code = cmd_cli(argparse.Namespace(data_dir=str(default_data_dir()), extra=argv[1:]), ui)
+        except CommandError as exc:
+            ui.error(str(exc))
+            code = 1
+        ui.finish()
+        return code
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not args.command:
+        parser.print_help()
+        return 0
+    DRY_RUN = bool(getattr(args, "dry_run", False))
+    ui = UI(json_mode=bool(getattr(args, "json", False)), quiet=bool(getattr(args, "quiet", False)))
+    try:
+        code = _HANDLERS[args.command](args, ui)
+    except CommandError as exc:
+        ui.error(str(exc))
+        code = 1
+    except PermissionError as exc:
+        ui.error(f"permessi insufficienti: {exc} (prova con sudo o --mode user)")
+        code = 1
+    except OSError as exc:
+        ui.error(f"errore di sistema: {exc}")
+        code = 1
+    except KeyboardInterrupt:  # pragma: no cover
+        ui.error("interrotto")
+        code = 130
+    ui.finish()
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

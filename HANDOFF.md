@@ -11,9 +11,15 @@ priorità e parallelismo a livello pagina.
 
 ## 1. Stato
 
-**Implementato e testato** (76 test, motore fittizio, nessuna rete):
+**Implementato e testato** (105 test, motore fittizio, nessuna rete):
 
 - Pipeline condivisa `engine.py` + `pipeline.py` (server e CLI).
+- **Console `noesis`** (`tools/noesis.py`, sola stdlib, multipiattaforma):
+  installazione guidata (venv, motore, config, servizio, pre-warm), gestione
+  (`start/stop/status/logs/doctor/open`), **bundle offline**, servizio
+  systemd-user/launchd/Task Scheduler, `--mode user|system` per il futuro VPS.
+  Gusci `install.sh` / `install.ps1` / `bootstrap.sh`; launcher `./noesis`.
+  Vedi `docs/INSTALL.md`.
 - Frontend web (Jinja2 + JS vanilla + SSE) con **anteprima anti-errore**
   (miniatura prima/ultima del range, numero fisico + etichetta `/PageLabels`).
 - API `/api/v1`: documenti, thumbnail, job, log SSE, download, cancel, meta,
@@ -60,7 +66,9 @@ priorità e parallelismo a livello pagina.
 
 | Verifica | Esito |
 |---|---|
-| `pytest -q` | **76 passed** |
+| `pytest -q` | **105 passed** |
+| Installer end-to-end (`noesis install --no-engine` + `doctor`) | ok |
+| CI matrix (Linux · macOS · Windows) | test + installer |
 | Import/avvio uvicorn | `health` e `/system` 200, `engine_available` true |
 | Frontend | pagina `/` 200, meta popolato |
 | CLI | `--version`, `--list-engines`, `--list-pages`, end-to-end con motore fittizio |
@@ -70,17 +78,24 @@ priorità e parallelismo a livello pagina.
 
 1. **pdf2zh_next non testato end-to-end qui**: va installato con
    `./setup_engine.sh`; primo run lento (download modelli). Benchmark costi da fare.
-2. **Licenze**: `pdf2zh_next`/BabelDOC copyleft (AGPL, da verificare) e catena
+2. **Installer (`noesis`)**: collaudato su Linux; macOS/Windows girano in CI
+   (test + installer `--no-engine`). Resta il **collaudo reale** su macOS e
+   Windows nativo e del **bundle offline** end-to-end. Su Windows il cancel
+   termina ora l'albero del motore (`taskkill /T /F`); da verificare font e lock
+   cache (su Windows `flock` è no-op: ok single-process).
+3. **Licenze**: `pdf2zh_next`/BabelDOC copyleft (AGPL, da verificare) e catena
    Google con endpoint non ufficiali → **blocco da sciogliere prima del
    commerciale**. Spike legale + costi pianificati.
-3. **OCR assente**: le scansioni senza testo non producono output; seam pronto.
-4. **PDF.js opzionale**: l'anteprima usa il server; per il rendering client
+4. **OCR assente**: le scansioni senza testo non producono output; seam pronto.
+5. **PDF.js opzionale**: l'anteprima usa il server; per il rendering client
    locale va collocata la build in `app/static/vendor/pdfjs/`.
-5. **Scalabilità**: coda su DB con ruoli `api`/`worker` (multi-processo sullo
+6. **Scalabilità**: coda su DB con ruoli `api`/`worker` (multi-processo sullo
    stesso VPS). Per **più nodi** serve `DATA_DIR` condiviso; un backend Redis
    resta l'evoluzione futura.
-6. **Auth/pagamenti**: da implementare sopra i seam (Supabase/OIDC/proxy;
+7. **Auth/pagamenti**: da implementare sopra i seam (Supabase/OIDC/proxy;
    Stripe Checkout + webhook + quota su `usage`).
+8. **VPS esterno**: console già predisposta (`--mode system`); deploy con
+   nginx/TLS/auth resta una fase successiva.
 
 ## 5. Comando rapido
 
@@ -88,6 +103,9 @@ priorità e parallelismo a livello pagina.
 cd /home/vigliafg/Documenti/GitHub/noesis-pdf-cloner-service
 uv pip install --python .venv/bin/python -q -r requirements.txt pytest httpx
 .venv/bin/python -m pytest -q
+./install.sh             # installazione guidata (venv, motore, servizio)
+./noesis doctor          # diagnosi
+./noesis status|logs     # gestione
 ./run.sh                 # server (all: API + worker nello stesso processo)
 ./run-api.sh             # solo API (ROLE=api)
 ./run-worker.sh          # un processo worker (WORKER_COUNT=N)

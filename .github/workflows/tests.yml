@@ -5,16 +5,52 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Test dell'applicazione su Linux, macOS e Windows nativi.
   pytest:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Installa uv
         uses: astral-sh/setup-uv@v5
       - name: Crea venv e installa le dipendenze
         run: |
-          uv venv --python python3.12 .venv
-          uv pip install --python .venv/bin/python -q -r requirements.txt pytest httpx
+          uv venv --python 3.12
+          uv pip install -q -r requirements.txt pytest httpx
       - name: Test
-        run: .venv/bin/python -m pytest -q
+        run: uv run --no-sync python -m pytest -q
+
+  # L'installer end-to-end: crea venv, config e verifica con `doctor`.
+  # Il motore pesante (pdf2zh_next + modelli) è escluso qui: usa --no-engine.
+  installer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installa uv
+        uses: astral-sh/setup-uv@v5
+      - name: Installer (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: ./noesis install --ci --no-service --skip-warm --no-engine --data-dir "$RUNNER_TEMP/noesis-data"
+      - name: Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\noesis.cmd install --ci --no-service --skip-warm --no-engine --data-dir "$env:RUNNER_TEMP/noesis-data"
+      - name: Doctor (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: ./noesis doctor --data-dir "$RUNNER_TEMP/noesis-data"
+      - name: Doctor (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\noesis.cmd doctor --data-dir "$env:RUNNER_TEMP/noesis-data"

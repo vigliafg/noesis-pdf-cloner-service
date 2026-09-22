@@ -20,6 +20,8 @@ Rispondere in **italiano**.
 
 ## Comandi utili
 - Test: `.venv/bin/python -m pytest -q` (usano un **motore fittizio**, niente rete).
+- Console (installazione e gestione): `./noesis doctor` · `./noesis status` ·
+  `./noesis logs` · `./install.sh` (vedi `docs/INSTALL.md`).
 - Motore di clonazione: `./setup_engine.sh` crea `.venv2` con `pdf2zh_next`.
 - Server: `./run.sh` (all) · `ROLE=api ./run-api.sh` · `WORKER_COUNT=N ./run-worker.sh`.
 - CLI: `./run-cli.sh …` (headless, batch, `tqdm`). `./run-cli.sh --check`.

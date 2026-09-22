@@ -22,7 +22,7 @@ Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-
 **Funzionante** (v0.1.0). Verificato end-to-end su un PDF reale (`ha22.pdf`,
 4.132 pagine): upload, anteprima, stima, coda, traduzione, download — sia da
 **server** sia da **CLI**. Motore `pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`.
-Test: **76 passed** (`pytest`, motore fittizio, nessuna rete).
+Test: **105 passed** (`pytest`, motore fittizio, nessuna rete).
 
 ## Architettura
 
@@ -57,7 +57,24 @@ CLI (noesis-cloner) ────────────────────
 - **Predisposto per il commerciale**: seam per autenticazione (Supabase/OIDC/
   reverse proxy), quote/usage e pagamenti Stripe; tabelle DB già presenti.
 
-## Avvio rapido
+## Installazione (consigliata)
+
+Un solo comando, multipiattaforma (**Linux · macOS · WSL · Windows nativo**):
+
+```bash
+git clone https://github.com/vigliafg/noesis-pdf-cloner-service
+cd noesis-pdf-cloner-service
+./install.sh
+```
+
+La console `noesis` crea i venv e il motore, scrive la configurazione, installa
+il servizio (avvio automatico), verifica con `doctor` e stampa gli URL (locale +
+LAN). Guida completa: [`docs/INSTALL.md`](docs/INSTALL.md).
+
+Cruscotto quotidiano: `./noesis status` · `logs` · `doctor` · `open` ·
+`start`/`stop`/`restart` · `bundle` (offline) · `update` · `uninstall`.
+
+### Avvio manuale (senza servizio)
 
 Serve **Python 3.12** e [uv](https://docs.astral.sh/uv/).
 
@@ -183,6 +200,10 @@ senza overhead dava $0.00040, ~13× in meno). I parametri sono configurabili
 
 ## Configurazione (variabili d'ambiente)
 
+Le stesse variabili si possono impostare nel file **`<data_dir>/noesis.env`**
+(creato da `./noesis install`): è il posto unico da modificare. Precedenza:
+opzione CLI > variabile della shell > `noesis.env` > default.
+
 | Variabile | Default | Descrizione |
 |---|---|---|
 | `HOST` / `PORT` | `127.0.0.1` / `18080` | bind del server |
@@ -227,6 +248,8 @@ senza overhead dava $0.00040, ~13× in meno). I parametri sono configurabili
 ```
 
 I test usano un **motore fittizio** (nessuna rete, nessun `pdf2zh_next`).
+La CI (`.github/workflows/tests.yml`) esegue i test su **Linux, macOS e Windows**
+e prova l'installer end-to-end (`noesis install --no-engine` + `doctor`).
 
 ## Struttura
 
