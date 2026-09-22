@@ -113,3 +113,20 @@ def test_engine_injects_llm_env_into_subprocess(tmp_path, monkeypatch):
     assert captured["PDF_LLM_MODEL"] == "inception/mercury-2.5"
     assert captured["PDF_LLM_BASE_URL"] == "https://example.test/v1"
     assert captured["OPENROUTER_API_KEY"] == "segreta"
+
+
+def test_google_clitranslator_command_roundtrips_windows_paths(tmp_path, monkeypatch):
+    """Il comando è letto da pdf2zh con ``shlex.split``: deve reggere i percorsi
+    Windows con backslash (altrimenti nessun ``.mono.pdf``)."""
+    import shlex
+
+    from app import engine as engine_module
+
+    engine = CloneEngine(tmp_path / "cache")
+    win_py = r"C:\Users\mario rossi\.venv2\Scripts\python.exe"
+    win_cli = r"C:\Temp\_MEI1\gtranslate_cli.py"
+    monkeypatch.setattr(engine_module, "venv_python_for", lambda *_: win_py)
+    monkeypatch.setattr(engine_module, "_gtranslate_cli_path", lambda: win_cli)
+    flags, _ = engine._translator_flags("google")
+    command = flags[flags.index("--clitranslator-command") + 1]
+    assert shlex.split(command) == [win_py, win_cli]

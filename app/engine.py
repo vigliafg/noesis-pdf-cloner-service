@@ -24,6 +24,7 @@ import glob
 import hashlib
 import logging
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -117,6 +118,26 @@ def venv_python_for(pdf2zh_bin: Path) -> str:
 
 def _gtranslate_cli_path() -> Path:
     return Path(__file__).resolve().with_name("gtranslate_cli.py")
+
+
+def page_has_text(path: str | Path) -> bool:
+    """True se la pagina contiene testo estraibile.
+
+    Distingue due casi con lo stesso sintomo (nessun ``.mono.pdf``): pagina
+    **senza testo** (copertina, scansione) → si usa l'originale; pagina con
+    testo ma nessuna traduzione → errore vero.
+    """
+    try:
+        import pymupdf
+    except ImportError:  # pragma: no cover
+        return True
+    try:
+        with pymupdf.open(str(path)) as doc:
+            if len(doc) == 0:
+                return False
+            return bool(doc[0].get_text().strip())
+    except Exception:  # noqa: BLE001 — in dubbio non mascherare un errore
+        return True
 
 
 # ── semaforo globale sui processi motore ────────────────────────────────────
@@ -411,7 +432,7 @@ class CloneEngine:
             return (
                 [
                     "--clitranslator",
-                    "--clitranslator-command", f"{py} {cli}",
+                    "--clitranslator-command", shlex.join([str(py), str(cli)]),
                     "--clitranslator-timeout", "120",
                     "--qps", "2",
                 ],
@@ -563,9 +584,14 @@ class CloneEngine:
                 )
             monos = glob.glob(str(work_dir / "*.mono.pdf"))
             if not monos:
-                # BabelDOC non produce output quando la pagina non ha testo da
-                # tradurre (copertina, pagina di sole immagini/scansione). Non è
-                # un errore: il clone della pagina è la pagina stessa.
+                if page_has_text(split):
+                    detail = (result.stderr or "").strip().splitlines()
+                    tail = detail[-1][:200] if detail else ""
+                    raise EngineError(
+                        "il motore non ha tradotto la pagina"
+                        + (f": {tail}" if tail else "")
+                    )
+                # Pagina senza testo: il clone è la pagina stessa.
                 log.info(
                     "pagina %d (%s): nessun testo da tradurre, uso l'originale",
                     page + 1, t_name,
