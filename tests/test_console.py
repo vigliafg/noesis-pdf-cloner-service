@@ -329,6 +329,187 @@ def test_handlers_cover_all_commands():
     assert subcommands == set(noesis._HANDLERS)
 
 
+# ── uninstall ───────────────────────────────────────────────────────────────
+
+
+def _uninstall_args(*argv):
+    return noesis.build_parser().parse_args(["uninstall", *argv])
+
+
+def _ui():
+    return noesis.UI(quiet=True)
+
+
+def _fake_uninstall_env(tmp_path, monkeypatch):
+    """Venv/motore/BabelDOC/data finti + servizio neutralizzato."""
+    service = tmp_path / "svc-venv"
+    engine = tmp_path / "eng-venv"
+    babeldoc = tmp_path / "babeldoc"
+    data = tmp_path / "data"
+    for venv in (service, engine):
+        venv.mkdir(parents=True)
+        (venv / "pyvenv.cfg").write_text("home = /python", encoding="utf-8")
+    babeldoc.mkdir()
+    (babeldoc / "model.bin").write_text("m" * 32, encoding="utf-8")
+    data.mkdir()
+    (data / "jobs.db").write_text("db" * 16, encoding="utf-8")
+
+    monkeypatch.setattr(noesis, "service_venv", lambda: service)
+    monkeypatch.setattr(noesis, "engine_venv", lambda: engine)
+    monkeypatch.setattr(noesis, "babeldoc_cache_dir", lambda: babeldoc)
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    calls: list[str] = []
+    monkeypatch.setattr(noesis, "stop_background", lambda *a, **k: calls.append("stop") or True)
+
+    class _FakeController:
+        def __init__(self, *a, **k):
+            pass
+
+        def uninstall(self):
+            calls.append("service")
+
+    monkeypatch.setattr(noesis, "ServiceController", _FakeController)
+    return service, engine, babeldoc, data, calls
+
+
+def test_fmt_size_and_path_size(tmp_path):
+    assert noesis._fmt_size(0) == "0 B"
+    assert noesis._fmt_size(1536) == "1.5 KB"
+    folder = tmp_path / "d"
+    folder.mkdir()
+    (folder / "a").write_bytes(b"x" * 100)
+    assert noesis._path_size(folder) == 100
+    assert noesis._path_size(None) == 0
+    assert noesis._path_size(tmp_path / "missing") == 0
+
+
+def test_is_venv(tmp_path):
+    venv = tmp_path / "v"
+    venv.mkdir()
+    (venv / "pyvenv.cfg").write_text("x", encoding="utf-8")
+    assert noesis._is_venv(venv)
+    assert not noesis._is_venv(tmp_path)
+
+
+def test_parse_selection():
+    assert noesis._parse_selection("", 4) == set()
+    assert noesis._parse_selection("a", 4) == {1, 2, 3, 4}
+    assert noesis._parse_selection("2,3", 4) == {2, 3}
+    assert noesis._parse_selection("9", 4) == set()
+    assert noesis._parse_selection("1 4", 4) == {1, 4}
+
+
+def test_external_cache_dir(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    data.mkdir()
+    external = tmp_path / "ext-cache"
+    external.mkdir()
+    monkeypatch.setenv("CACHE_ROOT", str(external))
+    assert noesis._external_cache_dir(data) == external
+    inside = data / "cache"
+    inside.mkdir()
+    monkeypatch.setenv("CACHE_ROOT", str(inside))
+    assert noesis._external_cache_dir(data) is None
+
+
+def test_uninstall_dry_run_changes_nothing(tmp_path, monkeypatch):
+    service, engine, babeldoc, data, calls = _fake_uninstall_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(noesis, "DRY_RUN", True)
+    code = noesis.cmd_uninstall(
+        _uninstall_args("--all", "--data-dir", str(data)), _ui()
+    )
+    assert code == 0
+    assert service.exists() and engine.exists() and babeldoc.exists() and data.exists()
+    assert calls == []  # in dry-run non si ferma né rimuove nulla
+
+
+def test_uninstall_all_removes_everything_but_uv(tmp_path, monkeypatch):
+    service, engine, babeldoc, data, calls = _fake_uninstall_env(tmp_path, monkeypatch)
+    uv_cache = tmp_path / "uv-cache"
+    uv_cache.mkdir()
+    (uv_cache / "f").write_text("k", encoding="utf-8")
+    code = noesis.cmd_uninstall(
+        _uninstall_args("--all", "--yes", "--data-dir", str(data)), _ui()
+    )
+    assert code == 0
+    assert not service.exists()
+    assert not engine.exists()
+    assert not babeldoc.exists()
+    assert not data.exists()
+    assert uv_cache.exists()  # la cache condivisa di uv non si tocca
+    assert calls == ["stop", "service"]
+
+
+def test_uninstall_data_only(tmp_path, monkeypatch):
+    service, engine, babeldoc, data, _ = _fake_uninstall_env(tmp_path, monkeypatch)
+    code = noesis.cmd_uninstall(_uninstall_args("--data", "--data-dir", str(data)), _ui())
+    assert code == 0
+    assert not data.exists()
+    assert service.exists() and engine.exists() and babeldoc.exists()
+
+
+def test_uninstall_engine_includes_babeldoc(tmp_path, monkeypatch):
+    service, engine, babeldoc, data, _ = _fake_uninstall_env(tmp_path, monkeypatch)
+    code = noesis.cmd_uninstall(_uninstall_args("--engine", "--data-dir", str(data)), _ui())
+    assert code == 0
+    assert not engine.exists()
+    assert not babeldoc.exists()  # --engine include la cache BabelDOC
+    assert service.exists() and data.exists()
+
+
+def test_uninstall_skips_non_venv(tmp_path, monkeypatch):
+    service, engine, babeldoc, data, _ = _fake_uninstall_env(tmp_path, monkeypatch)
+    (engine / "pyvenv.cfg").unlink()
+    code = noesis.cmd_uninstall(_uninstall_args("--venv", "--data-dir", str(data)), _ui())
+    assert code == 0
+    assert engine.exists()  # non è un venv: saltato per sicurezza
+
+
+def test_uninstall_external_cache(tmp_path, monkeypatch):
+    service, engine, babeldoc, data, _ = _fake_uninstall_env(tmp_path, monkeypatch)
+    external = tmp_path / "ext-cache"
+    external.mkdir()
+    (external / "split").write_text("s", encoding="utf-8")
+    monkeypatch.setenv("CACHE_ROOT", str(external))
+    noesis.cmd_uninstall(_uninstall_args("--cache", "--data-dir", str(data)), _ui())
+    assert not external.exists()
+    assert data.exists()
+
+
+def test_parser_uninstall_flags():
+    args = _uninstall_args("--all", "-y", "--dry-run")
+    assert args.all_ and args.yes and args.dry_run
+    alias = _uninstall_args("--purge")
+    assert alias.data  # retro-compatibile con --purge
+
+
+def test_uninstall_interactive_selection(tmp_path, monkeypatch):
+    service, engine, babeldoc, data, calls = _fake_uninstall_env(tmp_path, monkeypatch)
+    ui = noesis.UI(quiet=True)
+    # Simula un TTY e la selezione "2,3" = motore + cache BabelDOC.
+    monkeypatch.setattr(noesis.UI, "is_interactive", lambda self: True)
+    monkeypatch.setattr(noesis.UI, "ask", lambda self, q, default="": "2,3")
+    monkeypatch.setattr(noesis.UI, "ask_yes_no", lambda self, q, default=False: True)
+    code = noesis.cmd_uninstall(_uninstall_args("--data-dir", str(data)), ui)
+    assert code == 0
+    assert not engine.exists()
+    assert not babeldoc.exists()
+    assert service.exists() and data.exists()  # non selezionati: conservati
+    assert calls == ["stop", "service"]
+
+
+def test_uninstall_interactive_all(tmp_path, monkeypatch):
+    service, engine, babeldoc, data, calls = _fake_uninstall_env(tmp_path, monkeypatch)
+    ui = noesis.UI(quiet=True)
+    monkeypatch.setattr(noesis.UI, "is_interactive", lambda self: True)
+    monkeypatch.setattr(noesis.UI, "ask", lambda self, q, default="": "a")
+    monkeypatch.setattr(noesis.UI, "ask_yes_no", lambda self, q, default=False: True)
+    code = noesis.cmd_uninstall(_uninstall_args("--data-dir", str(data)), ui)
+    assert code == 0
+    assert not service.exists() and not engine.exists()
+    assert not babeldoc.exists() and not data.exists()
+
+
 # ── helper ──────────────────────────────────────────────────────────────────
 
 

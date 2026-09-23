@@ -14,7 +14,7 @@ Comandi principali::
     noesis service     install/enable/disable/uninstall del servizio
     noesis bundle      crea un pacchetto offline (wheel + modelli)
     noesis update      aggiorna il codice e le dipendenze
-    noesis uninstall   rimuove il servizio (e, con --purge, i dati)
+    noesis uninstall   rimuove il servizio e, su scelta, venv/motore/dati/cache
 
 Il file di configurazione è ``<data_dir>/noesis.env``: sono le stesse
 variabili d'ambiente che l'applicazione già legge (``Settings.from_env``).
@@ -211,6 +211,35 @@ class UI:
         if self.json_mode or self.quiet:
             return
         print(f"\n{title}" if self.color else f"\n== {title} ==")
+
+    def is_interactive(self) -> bool:
+        """True se possiamo chiedere input (TTY, non ``--json``/``--quiet``)."""
+        return (
+            not self.json_mode
+            and not self.quiet
+            and sys.stdin is not None
+            and sys.stdout is not None
+            and sys.stdin.isatty()
+            and sys.stdout.isatty()
+        )
+
+    def ask(self, question: str, *, default: str = "") -> str:
+        """Legge una riga da stdin (vuoto se non interattivo)."""
+        if not self.is_interactive():
+            return default
+        try:
+            return input(question).strip()
+        except (EOFError, KeyboardInterrupt):  # pragma: no cover - TTY
+            return default
+
+    def ask_yes_no(self, question: str, *, default: bool = False) -> bool:
+        if not self.is_interactive():
+            return default
+        suffix = " [S/n]" if default else " [s/N]"
+        answer = self.ask(f"{question}{suffix} ").lower()
+        if not answer:
+            return default
+        return answer in {"s", "si", "sì", "y", "yes"}
 
     def finish(self) -> None:
         if self.json_mode:
@@ -1259,16 +1288,189 @@ def cmd_update(args: argparse.Namespace, ui: UI) -> int:
     return 0
 
 
+# ── disinstallazione ────────────────────────────────────────────────────────
+
+
+@dataclass
+class RemovalItem:
+    """Voce rimovibile dalla disinstallazione (con dimensione, se calcolata)."""
+
+    key: str
+    label: str
+    path: Path | None
+    size: int = 0
+    selected: bool = False
+
+
+def _fmt_size(num_bytes: int) -> str:
+    value = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
+
+
+def _path_size(path: Path | None) -> int:
+    """Dimensione (byte) di file o cartella; 0 se assente/non leggibile."""
+    if path is None or not path.exists():
+        return 0
+    if path.is_file():
+        try:
+            return path.stat().st_size
+        except OSError:
+            return 0
+    total = 0
+    for item in path.rglob("*"):
+        try:
+            if item.is_file() and not item.is_symlink():
+                total += item.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _is_venv(path: Path) -> bool:
+    return path.is_dir() and (path / "pyvenv.cfg").is_file()
+
+
+def _external_cache_dir(data_dir: Path) -> Path | None:
+    """``CACHE_ROOT`` configurato, se è **fuori** dalla cartella dati."""
+    configured = os.environ.get("CACHE_ROOT") or load_config(data_dir).get("CACHE_ROOT", "")
+    if not configured:
+        return None
+    candidate = Path(configured).expanduser()
+    try:
+        candidate.resolve().relative_to(data_dir.resolve())
+        return None  # dentro data_dir: già coperto da --data
+    except (ValueError, OSError):
+        return candidate
+
+
+def _parse_selection(answer: str, count: int) -> set[int]:
+    """Interpreta ``2,3`` · ``a``/``tutto`` · vuoto → indici 1-based scelti."""
+    answer = (answer or "").strip().lower()
+    if not answer:
+        return set()
+    if answer in {"a", "all", "tutto", "*"}:
+        return set(range(1, count + 1))
+    chosen: set[int] = set()
+    for token in re.split(r"[,\s]+", answer):
+        if token.isdigit():
+            value = int(token)
+            if 1 <= value <= count:
+                chosen.add(value)
+    return chosen
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def cmd_uninstall(args: argparse.Namespace, ui: UI) -> int:
+    """Rimuove il servizio e, su scelta, venv/motore/dati/cache.
+
+    Senza flag e su TTY mostra il menu "Cosa rimuovere" (dimensioni incluse);
+    in non-TTY o con ``--json``/``--yes`` è **conservativo**: rimuove solo il
+    servizio. ``--all`` = nessuna traccia del servizio (mai la cache condivisa
+    di ``uv``/Python gestiti, che non sono nostri).
+    """
     data_dir = Path(args.data_dir).expanduser()
     host, port = resolve_host_port(args, data_dir)
+
+    remove_all = bool(getattr(args, "all_", False))
+    engine_flag = bool(getattr(args, "engine", False)) or remove_all
+    flags = {
+        "venv": bool(getattr(args, "venv", False)) or remove_all,
+        "engine": engine_flag,
+        "data": bool(getattr(args, "data", False)) or remove_all,
+        "cache": bool(getattr(args, "cache", False)) or remove_all,
+        "babeldoc": bool(getattr(args, "babeldoc", False)) or engine_flag,
+    }
+
+    items: list[RemovalItem] = [
+        RemovalItem("venv", "Venv del servizio (.venv)", service_venv()),
+        RemovalItem("engine", "Motore (.venv2)", engine_venv()),
+        RemovalItem("babeldoc", "Cache BabelDOC (condivisa)", babeldoc_cache_dir()),
+        RemovalItem("data", "Dati dell'app (upload, DB, log, cache)", data_dir),
+    ]
+    external_cache = _external_cache_dir(data_dir)
+    if external_cache is not None:
+        items.append(RemovalItem("cache", "Cache esterna (CACHE_ROOT)", external_cache))
+
+    explicit = any(
+        getattr(args, name, False)
+        for name in ("venv", "engine", "data", "cache", "babeldoc", "all_", "service")
+    )
+    interactive = bool(getattr(args, "interactive", False)) or (
+        not explicit and not getattr(args, "yes", False) and ui.is_interactive()
+    )
+    want_sizes = interactive or ui.json_mode
+
+    for item in items:
+        item.selected = flags.get(item.key, False)
+        if want_sizes:
+            item.size = _path_size(item.path)
+
+    if interactive:
+        ui.section("Cosa rimuovere")
+        ui.info("  Il servizio di avvio automatico viene sempre rimosso.")
+        for index, item in enumerate(items, start=1):
+            size = f"  {_fmt_size(item.size)}" if item.size else ""
+            ui.info(f"  {index}. {item.label}{size}")
+        ui.info("  [a] tutto (nessuna traccia) · [invio] solo il servizio")
+        chosen = _parse_selection(ui.ask("Selezione (es. 2,3): "), len(items))
+        for index, item in enumerate(items, start=1):
+            item.selected = index in chosen
+
+    ui.section("Piano di disinstallazione")
+    ui.info("Rimosso: Servizio di avvio automatico")
+    for item in items:
+        size = f" ({_fmt_size(item.size)})" if item.size else ""
+        if item.selected:
+            ui.info(f"Rimuovo: {item.label} → {item.path}{size}")
+        else:
+            ui.info(f"Conservo: {item.label} → {item.path}")
+
+    if DRY_RUN:
+        ui.info("[dry-run] nessuna modifica effettuata")
+        return 0
+
+    if interactive and not getattr(args, "yes", False):
+        if not ui.ask_yes_no("Procedo con la rimozione?", default=True):
+            ui.info("annullato")
+            return 0
+
     stop_background(data_dir, ui)
-    ServiceController(data_dir, ui, system=args.mode == "system", spec=_service_spec(data_dir, host=host, port=port)).uninstall()
-    if args.purge:
-        shutil.rmtree(data_dir, ignore_errors=True)
+    ServiceController(
+        data_dir, ui, system=args.mode == "system",
+        spec=_service_spec(data_dir, host=host, port=port),
+    ).uninstall()
+
+    for item in items:
+        if not item.selected or item.path is None:
+            continue
+        if item.key in {"venv", "engine"} and not _is_venv(item.path):
+            ui.warn(f"{item.label}: non sembra un venv, salto ({item.path})")
+            continue
+        if not item.path.exists():
+            continue
+        _remove_path(item.path)
+        if item.path.exists():
+            ui.warn(f"non rimosso del tutto: {item.path}")
+        else:
+            ui.ok(f"rimosso {item.label}: {item.path}")
+
+    if flags["data"]:
         ui.ok(f"dati rimossi: {data_dir}")
     else:
-        ui.info(f"dati conservati in {data_dir} (usa --purge per rimuoverli)")
+        ui.info(f"dati conservati in {data_dir} (usa --data per rimuoverli)")
     return 0
 
 
@@ -1383,9 +1585,19 @@ def build_parser() -> argparse.ArgumentParser:
     _common(update)
     update.add_argument("--no-engine", action="store_true")
 
-    uninstall = sub.add_parser("uninstall", help="rimuovi il servizio")
+    uninstall = sub.add_parser(
+        "uninstall", help="rimuovi il servizio (scelta interattiva di cosa rimuovere)"
+    )
     _common(uninstall)
-    uninstall.add_argument("--purge", action="store_true", help="rimuovi anche i dati")
+    uninstall.add_argument("--service", action="store_true", help="solo il servizio (nessun altro elemento)")
+    uninstall.add_argument("--venv", action="store_true", help="rimuovi anche il venv del servizio (.venv)")
+    uninstall.add_argument("--engine", action="store_true", help="rimuovi anche il motore (.venv2) e la cache BabelDOC")
+    uninstall.add_argument("--data", "--purge", dest="data", action="store_true", help="rimuovi anche la cartella dati")
+    uninstall.add_argument("--cache", action="store_true", help="rimuovi anche la cache esterna (CACHE_ROOT)")
+    uninstall.add_argument("--babeldoc", action="store_true", help="rimuovi la cache BabelDOC condivisa")
+    uninstall.add_argument("--all", dest="all_", action="store_true", help="rimuovi tutto (nessuna traccia del servizio)")
+    uninstall.add_argument("--interactive", action="store_true", help="forza la scelta interattiva")
+    uninstall.add_argument("-y", "--yes", action="store_true", help="non chiedere conferma")
 
     runp = sub.add_parser("run", help="server in primo piano (debug/wrapper)")
     _common(runp)

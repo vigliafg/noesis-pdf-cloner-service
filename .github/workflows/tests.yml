@@ -54,3 +54,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: .\noesis.cmd doctor --data-dir "$env:RUNNER_TEMP/noesis-data"
+      - name: Uninstall dry-run (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: ./noesis uninstall --dry-run --data-dir "$RUNNER_TEMP/noesis-data"
+      - name: Uninstall dry-run (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\noesis.cmd uninstall --dry-run --data-dir "$env:RUNNER_TEMP/noesis-data"

@@ -54,7 +54,7 @@ sessione grafica, apre il browser.
 | `./noesis service install\|uninstall\|status` | gestione del servizio |
 | `./noesis bundle` | crea un pacchetto **offline** |
 | `./noesis update` | `git pull` + aggiorna le dipendenze |
-| `./noesis uninstall [--purge]` | rimuove il servizio (e, con `--purge`, i dati) |
+| `./noesis uninstall [--all]` | rimuove il servizio; scelta interattiva di cosa rimuovere |
 
 Opzioni utili: `--data-dir`, `--host`, `--port`, `--mode user|system`,
 `--no-service`, `--no-engine`, `--skip-warm`, `--open-firewall`, `--dry-run`,
@@ -129,9 +129,21 @@ piattaforma (Linux x86_64 ≠ macOS arm64 ≠ Windows).
 
 ```bash
 ./noesis update                 # git pull + dipendenze
-./noesis uninstall              # rimuove il servizio, conserva i dati
-./noesis uninstall --purge      # rimuove anche la cartella dati
+./noesis uninstall              # scelta interattiva di cosa rimuovere (solo servizio in non-TTY)
+./noesis uninstall --dry-run    # piano con dimensioni, nessuna modifica
+./noesis uninstall --data       # rimuove servizio + dati (alias storico: --purge)
+./noesis uninstall --venv       # rimuove anche il venv del servizio (.venv)
+./noesis uninstall --engine     # rimuove anche il motore (.venv2) e la cache BabelDOC
+./noesis uninstall --all -y     # nessuna traccia del servizio (venv + motore + dati + cache)
 ```
+
+Su terminale `uninstall` mostra il menu **"Cosa rimuovere"** con le dimensioni e
+chiede conferma; senza TTY (o con `--json`/`--yes`) è conservativo. La cache
+condivisa di `uv`/Python gestiti **non viene mai toccata**; il repository non
+viene mai rimosso.
+
+Wrapper equivalenti: `./uninstall.sh` (Linux/macOS/WSL) e `.\uninstall.ps1`
+(Windows) delegano a `./noesis uninstall`.
 
 ## Diagnosi
 

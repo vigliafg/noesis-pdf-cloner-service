@@ -74,6 +74,23 @@ LAN). Guida completa: [`docs/INSTALL.md`](docs/INSTALL.md).
 Cruscotto quotidiano: `./noesis status` · `logs` · `doctor` · `open` ·
 `start`/`stop`/`restart` · `bundle` (offline) · `update` · `uninstall`.
 
+### Disinstallazione
+
+```bash
+./uninstall.sh                 # (o ./noesis uninstall) scelta interattiva di cosa rimuovere
+./noesis uninstall --dry-run   # mostra il piano con le dimensioni, senza toccare nulla
+./noesis uninstall --data      # rimuove il servizio e i dati
+./noesis uninstall --all -y    # nessuna traccia del servizio (venv + motore + dati + cache)
+```
+
+Senza argomenti, su terminale, `uninstall` mostra il menu **"Cosa rimuovere"**
+(venv del servizio, motore `.venv2`, cache BabelDOC, dati, cache esterna) con le
+dimensioni e chiede conferma; in un contesto non interattivo (pipe/CI) o con
+`--json`/`--yes` è **conservativo** e rimuove solo il servizio. `--all` è
+l'equivalente di "nessuna traccia". La **cache condivisa di `uv`/Python gestiti
+non viene mai toccata** (non è nostra); il repository del codice non viene mai
+rimosso.
+
 ### Avvio manuale (senza servizio)
 
 Serve **Python 3.12** e [uv](https://docs.astral.sh/uv/).
