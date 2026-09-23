@@ -126,6 +126,7 @@ def test_engine_injects_llm_env_into_subprocess(tmp_path, monkeypatch):
     assert out.is_file()
     assert captured["PDF_LANG_IN"] == "en"
     assert captured["PDF_LANG_OUT"] == "it"
+    assert captured["PYTHONIOENCODING"] == "utf-8"
     assert captured["PDF_LLM_MODEL"] == "inception/mercury-2.5"
     assert captured["PDF_LLM_BASE_URL"] == "https://example.test/v1"
     assert captured["OPENROUTER_API_KEY"] == "segreta"

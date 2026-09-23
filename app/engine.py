@@ -656,6 +656,9 @@ class CloneEngine:
         env = dict(os.environ)
         env["PDF_LANG_IN"] = lang_in
         env["PDF_LANG_OUT"] = lang_out
+        # UTF-8 nei subprocess figli (gtranslate_cli.py): su Windows evita che
+        # le accentate escano in cp1252 e diventino U+FFFD nel pipe.
+        env["PYTHONIOENCODING"] = "utf-8"
         env["CLONE_ENGINE_EVENTS"] = str(self.cache_root / "engine_events.jsonl")
         # Allinea il fallback LLM della catena gratuita (gtranslate_cli.py) alla
         # configurazione del servizio, anche se il modello è cambiato via codice.
