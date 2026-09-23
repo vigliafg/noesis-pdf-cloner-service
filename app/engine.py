@@ -139,6 +139,19 @@ def classify_engine_failure(text: str) -> str:
     return "unknown"
 
 
+def _engine_failure_code(engine: str, stderr: str, stdout: str) -> str | None:
+    """Codice classificato, o ``None`` se non riconosciuto.
+
+    Guarda **sia stderr sia stdout**: con alcune chiavi non valide
+    ``pdf2zh_next`` esce con codice **0**, stderr vuoto e l'errore (401) su
+    stdout, quindi la sola stderr non basta.
+    """
+    code = classify_engine_failure((stderr or "") + "\n" + (stdout or ""))
+    if code != "unknown" and (engine == "llm" or code == "network"):
+        return code
+    return None
+
+
 # ── localizzazione dell'eseguibile ──────────────────────────────────────────
 
 
@@ -654,20 +667,34 @@ class CloneEngine:
             log.info("traduzione pagina %d via %s", page + 1, t_name)
             result = self._run_engine(cmd, env, cancel_event)
             if result.returncode != 0:
-                stderr = result.stderr or ""
-                code = classify_engine_failure(stderr)
+                code = _engine_failure_code(engine, result.stderr, result.stdout)
                 # Per l'LLM riportiamo il codice specifico (chiave, credito,
                 # rate limit, modello…); per gli altri motori solo la rete.
-                if code != "unknown" and (engine == "llm" or code == "network"):
-                    log.warning("pdf2zh_next fallito (%s): %s", code, stderr[-200:])
+                if code is not None:
+                    log.warning("pdf2zh_next fallito (%s)", code)
                     raise EngineError(f"{_FAILURE_MESSAGES[code]} [{code}]")
                 raise EngineError(
-                    f"pdf2zh_next exit {result.returncode}: {stderr[-400:]}"
+                    f"pdf2zh_next exit {result.returncode}: "
+                    f"{(result.stderr or '')[-400:]}"
                 )
             monos = glob.glob(str(work_dir / "*.mono.pdf"))
             if not monos:
                 if page_has_text(split):
+                    # Anche con exit 0 il motore può essere fallito (es. 401
+                    # gestito internamente e scritto su stdout): classifica.
+                    code = _engine_failure_code(
+                        engine, result.stderr, result.stdout
+                    )
+                    if code is not None:
+                        log.warning("pdf2zh_next fallito (%s)", code)
+                        raise EngineError(f"{_FAILURE_MESSAGES[code]} [{code}]")
                     detail = (result.stderr or "").strip().splitlines()
+                    if not detail:
+                        detail = [
+                            ln.strip()
+                            for ln in (result.stdout or "").splitlines()
+                            if ln.strip()
+                        ]
                     tail = detail[-1][:200] if detail else ""
                     raise EngineError(
                         "il motore non ha tradotto la pagina"
