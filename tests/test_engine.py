@@ -2,9 +2,25 @@
 
 import pytest
 
-from app.engine import CloneEngine, find_pdf2zh_bin
+from app.engine import CloneEngine, classify_engine_failure, find_pdf2zh_bin
 
 from helpers import make_pdf
+
+
+def test_classify_engine_failure_codes():
+    cases = {
+        "HTTP 401 Unauthorized": "invalid_key",
+        "invalid_api_key": "invalid_key",
+        "403 Forbidden": "forbidden",
+        "402 Payment Required": "no_credits",
+        "429 Too Many Requests": "rate_limited",
+        "404 model not found": "model_not_found",
+        "getaddrinfo failed": "network",
+        "Connection timed out": "network",
+        "qualcosa di strano": "unknown",
+    }
+    for text, code in cases.items():
+        assert classify_engine_failure(text) == code, text
 
 
 def test_doc_key_is_content_hash(tmp_path):

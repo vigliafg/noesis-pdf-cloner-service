@@ -64,6 +64,81 @@ class TranslationCancelled(EngineError):
     """Traduzione annullata dall'utente."""
 
 
+# ── classificazione dei fallimenti di pdf2zh_next ───────────────────────────
+#
+# Stessa logica del desktop (``clone_engine.classify_engine_failure``): il primo
+# marcatore che compare nello stderr determina il codice.
+
+_FAILURE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "invalid_key",
+        (
+            "401",
+            "unauthorized",
+            "invalid api key",
+            "invalid_api_key",
+            "no auth credentials",
+            "authentication",
+        ),
+    ),
+    ("forbidden", ("403", "forbidden", "permission denied")),
+    (
+        "no_credits",
+        (
+            "402",
+            "payment required",
+            "insufficient credit",
+            "insufficient_quota",
+            "quota exceeded",
+            "out of credits",
+        ),
+    ),
+    ("rate_limited", ("429", "rate limit", "too many requests")),
+    (
+        "model_not_found",
+        ("404", "model not found", "no endpoints found", "not a valid model"),
+    ),
+    (
+        "network",
+        (
+            "connection",
+            "timed out",
+            "timeout",
+            "getaddrinfo",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "ssl",
+            "proxy",
+            "network is unreachable",
+            "max retries exceeded",
+            "nodename nor servname",
+        ),
+    ),
+)
+
+_FAILURE_MESSAGES = {
+    "invalid_key": "chiave OpenRouter non valida o rifiutata (401)",
+    "forbidden": "accesso a OpenRouter rifiutato (403)",
+    "no_credits": "credito OpenRouter esaurito (402)",
+    "rate_limited": "troppe richieste a OpenRouter (429)",
+    "model_not_found": "modello LLM non disponibile su OpenRouter (404)",
+    "network": "impossibile contattare OpenRouter (rete/proxy/timeout)",
+}
+
+
+def classify_engine_failure(text: str) -> str:
+    """Classifica un fallimento di ``pdf2zh_next`` a partire dallo stderr.
+
+    Ritorna uno tra: ``invalid_key``, ``forbidden``, ``no_credits``,
+    ``rate_limited``, ``model_not_found``, ``network``, ``unknown``.
+    """
+    low = (text or "").lower()
+    for code, markers in _FAILURE_MARKERS:
+        if any(marker in low for marker in markers):
+            return code
+    return "unknown"
+
+
 # ── localizzazione dell'eseguibile ──────────────────────────────────────────
 
 
@@ -579,8 +654,15 @@ class CloneEngine:
             log.info("traduzione pagina %d via %s", page + 1, t_name)
             result = self._run_engine(cmd, env, cancel_event)
             if result.returncode != 0:
+                stderr = result.stderr or ""
+                code = classify_engine_failure(stderr)
+                # Per l'LLM riportiamo il codice specifico (chiave, credito,
+                # rate limit, modello…); per gli altri motori solo la rete.
+                if code != "unknown" and (engine == "llm" or code == "network"):
+                    log.warning("pdf2zh_next fallito (%s): %s", code, stderr[-200:])
+                    raise EngineError(f"{_FAILURE_MESSAGES[code]} [{code}]")
                 raise EngineError(
-                    f"pdf2zh_next exit {result.returncode}: {(result.stderr or '')[-400:]}"
+                    f"pdf2zh_next exit {result.returncode}: {stderr[-400:]}"
                 )
             monos = glob.glob(str(work_dir / "*.mono.pdf"))
             if not monos:
