@@ -191,6 +191,9 @@ class HealthOut(BaseModel):
     queue_length: int
     workers: int
     role: str = "all"
+    engine_runnable: bool = True
+    key_present: bool = False
+    checks: list[dict] | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════

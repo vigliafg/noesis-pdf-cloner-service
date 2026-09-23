@@ -110,6 +110,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-json", type=Path, default=None, help="scrive il log degli eventi in JSONL")
     parser.add_argument("-v", "--verbose", action="store_true", help="log dettagliato")
     parser.add_argument("--check", action="store_true", help="verifica la presenza del motore ed esce")
+    parser.add_argument(
+        "--doctor", action="store_true",
+        help="diagnostica di preflight (ambiente, uv, motore, chiave, modello) ed esce",
+    )
     parser.add_argument("--list-langs", action="store_true", help="elenca le lingue disponibili")
     parser.add_argument("--list-engines", action="store_true", help="elenca i motori disponibili")
     parser.add_argument("--list-pages", action="store_true", help="stampa indice fisico → etichetta")
@@ -251,6 +255,33 @@ def _process_one(
     }
 
 
+def _run_doctor(settings: Settings) -> int:
+    """Diagnostica di preflight: stampa i controlli e ritorna un exit code.
+
+    0 = tutto ok, 1 = avvisi (degradato), 2 = errori bloccanti.
+    """
+    from .diagnostics import Status, build_context, health_status, run_all
+
+    symbols = {
+        Status.OK: "OK", Status.WARN: "!!", Status.FAIL: "XX", Status.SKIP: "--",
+    }
+
+    def show(result) -> None:
+        extra = ""
+        if result.id == "engine.bin" and result.status == Status.OK:
+            extra = f" {result.data.get('path', '')}"
+        if result.id == "key.present" and result.data.get("masked"):
+            extra = f" {result.data['masked']} [{result.data.get('source')}]"
+        elif result.message:
+            extra = f" {result.message}"
+        print(f"[{symbols.get(result.status, '?')}] {result.id:16s}{extra}")
+
+    results = run_all(build_context(settings), on_result=show)
+    status = health_status(results)
+    print(f"\nEsito diagnostica: {status}")
+    return 0 if status == "ok" else (1 if status == "degraded" else 2)
+
+
 def _handle_utility(args, settings: Settings) -> int | None:
     if args.check:
         binary = find_pdf2zh_bin(settings.pdf2zh_bin)
@@ -259,6 +290,8 @@ def _handle_utility(args, settings: Settings) -> int | None:
             return 0
         print("motore pdf2zh_next NON trovato (installa .venv2 o imposta PDF2ZH_BIN)", file=sys.stderr)
         return 2
+    if args.doctor:
+        return _run_doctor(settings)
     if args.list_langs:
         for code, name in LANGUAGES.items():
             print(f"{code}\t{name}")

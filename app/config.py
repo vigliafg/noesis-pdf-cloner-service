@@ -88,6 +88,8 @@ class Settings:
     llm_model: str = "inception/mercury-2.5"
     llm_base_url: str = "https://openrouter.ai/api/v1"
     engine_cache_version: str = "1"
+    # Rifiuta a monte un job LLM senza chiave (evita che fallisca in coda).
+    preflight_guard: bool = True
 
     # ── stima tempo/costo (0 = usa i default interni) ───────────────────
     estimate_ms_per_page: dict = field(default_factory=dict)  # engine → ms
@@ -197,6 +199,7 @@ class Settings:
             llm_model=_env_str("PDF_LLM_MODEL", "inception/mercury-2.5"),
             llm_base_url=_env_str("PDF_LLM_BASE_URL", "https://openrouter.ai/api/v1"),
             engine_cache_version=_env_str("ENGINE_CACHE_VERSION", "1"),
+            preflight_guard=_env_bool("PREFLIGHT_GUARD", True),
             estimate_ms_per_page={
                 "google": _env_int("ESTIMATE_MS_PER_PAGE_GOOGLE", 0),
                 "bing": _env_int("ESTIMATE_MS_PER_PAGE_BING", 0),

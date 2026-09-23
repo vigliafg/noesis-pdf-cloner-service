@@ -112,7 +112,18 @@ condivisa su SQLite (`DATA_DIR` comune). File systemd/nginx in
 
 ./run-cli.sh pdfs/ha22.pdf --list-pages  # indice fisico → etichetta stampata
 ./run-cli.sh --check                     # verifica il motore
+./run-cli.sh --doctor                    # diagnostica completa (motore, uv, chiave, modello)
 ```
+
+`--doctor` esegue la diagnostica **runtime** (ambiente, `uv`, `pdf2zh_next`,
+rete, chiave OpenRouter, modello LLM, catena gratuita) e fa da exit code
+`0` = ok, `1` = avvisi, `2` = errori bloccanti.
+
+> Non va confuso con **`./noesis doctor`** (`tools/noesis.py`), che diagnostica
+> l'**installazione** (venv servizio/motore, config, cartella dati, spazio,
+> firewall, server raggiungibile). I due sono complementari: l'installer dice se
+> il software è installato bene, `noesis-cloner --doctor` dice se è pronto a
+> **tradurre** (motore, chiave, modello).
 
 I **PDF di test** stanno in `pdfs/` (non versionati: vedi `pdfs/README.md`).
 
@@ -154,6 +165,16 @@ Endpoint: `POST/GET/DELETE /documents`, `GET /documents/{id}/thumb`,
 `POST /jobs`, `POST /jobs/estimate`, `GET /jobs`, `GET /jobs/{id}`,
 `GET /jobs/{id}/events`, `GET /jobs/{id}/download`, `POST /jobs/{id}/cancel`,
 `GET /meta`, `GET /system`, `GET /health`, `GET /metrics`.
+
+`GET /health` è **economico**: `engine_available`, `engine_runnable`,
+`key_present`, `queue_length`, `workers`, `role` e `status`
+(`ok`/`degraded`). Con **`?deep=1`** esegue la diagnostica completa (rete,
+chiave, modello, catena gratuita) e la espone in `checks` (usa `0`/`1`/`2` come
+`--doctor`): è lo stesso motore di `app/diagnostics.py`.
+
+Un job con `engine="llm"` e nessuna `OPENROUTER_API_KEY` viene rifiutato a monte
+con **409** (guardia `PREFLIGHT_GUARD`, attiva di default) invece di fallire in
+coda.
 
 ### Stima
 
@@ -236,6 +257,7 @@ opzione CLI > variabile della shell > `noesis.env` > default.
 | `PDF2ZH_BIN` | auto | percorso dell'eseguibile `pdf2zh_next` |
 | `OPENROUTER_API_KEY` | — | necessaria per il motore `llm` |
 | `PDF_LLM_MODEL` / `PDF_LLM_BASE_URL` | `inception/mercury-2.5` / OpenRouter | modello LLM |
+| `PREFLIGHT_GUARD` | `true` | rifiuta (409) un job `llm` senza chiave invece di accodarlo |
 | `AUTH_MODE` | `none` | seam auth: `none` \| `proxy` \| `jwt` |
 | `TRUSTED_PROXY_HEADERS` | `false` | fidati degli header del reverse proxy |
 | `QUOTA_ENABLED` / `FEATURE_OCR` / `FEATURE_PAYMENTS` | `false` | seam commerciali |

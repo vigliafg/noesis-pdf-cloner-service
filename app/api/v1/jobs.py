@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 
@@ -73,6 +74,20 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
     engine = normalize_engine(payload.engine)
     if engine not in ENGINES:
         raise HTTPException(status_code=400, detail=f"motore sconosciuto: {payload.engine}")
+    # Guardia preflight: non accodare un job LLM che non potrebbe tradurre.
+    if (
+        settings.preflight_guard
+        and engine == "llm"
+        and not (
+            settings.openrouter_api_key
+            or os.environ.get("OPENROUTER_API_KEY")
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="motore LLM senza chiave OpenRouter: imposta OPENROUTER_API_KEY "
+                   "(vedi /api/v1/health?deep=1)",
+        )
     if payload.src_lang not in LANGUAGES:
         raise HTTPException(status_code=400, detail=f"lingua origine sconosciuta: {payload.src_lang}")
     if payload.dst_lang not in LANGUAGES or payload.dst_lang == "auto":
