@@ -1,6 +1,6 @@
 # Handoff — noesis-pdf-cloner-service
 
-*Data: 2026-09-22 · Versione 0.1.0 · Repository pubblico:
+*Data: 2026-09-24 · Versione 0.1.0 · Repository pubblico:
 `git@github.com:vigliafg/noesis-pdf-cloner-service.git` (SSH, branch `main`).*
 
 Servizio **server + CLI headless** derivato da `noesis-pdf-cloner`: traduce PDF
@@ -11,7 +11,7 @@ priorità e parallelismo a livello pagina.
 
 ## 1. Stato
 
-**Implementato e testato** (105 test, motore fittizio, nessuna rete):
+**Implementato e testato** (223 test, motore fittizio, nessuna rete):
 
 - Pipeline condivisa `engine.py` + `pipeline.py` (server e CLI).
 - **Console `noesis`** (`tools/noesis.py`, sola stdlib, multipiattaforma):
@@ -38,6 +38,10 @@ priorità e parallelismo a livello pagina.
   dalla macchina; coda su **DB** (`QUEUE_BACKEND=db`) con ruoli `ROLE=api|worker`
   e `WORKER_COUNT=N` (risorse divise tra i worker); guardie RAM/disco; endpoint
   `GET /system`. Deploy systemd/nginx in `deploy/`.
+- **Docker multi-arch** (`linux/amd64`, `linux/arm64`) pubblicato su **GHCR**
+  dalla CI: immagine con i due venv e gli asset BabelDOC pre-scaricati,
+  `docker run` out-of-the-box; `resources.py` è **cgroup-aware** (autosize
+  corretto nei container). Vedi `docs/DOCKER.md` / ADR-017.
 - Retention (`janitor`), metriche Prometheus, seam per auth/quota/OCR/email/audit.
 
 ## 2. Scelte tecniche
@@ -66,9 +70,11 @@ priorità e parallelismo a livello pagina.
 
 | Verifica | Esito |
 |---|---|
-| `pytest -q` | **105 passed** |
+| `pytest -q` | **223 passed** |
 | Installer end-to-end (`noesis install --no-engine` + `doctor`) | ok |
 | CI matrix (Linux · macOS · Windows) | test + installer |
+| Docker: build multi-arch + smoke test | ok (CI, GHCR **pubblico**) |
+| Docker: pull anonimo + avvio + traduzione google | health ok, 1/1 pagina |
 | Import/avvio uvicorn | `health` e `/system` 200, `engine_available` true |
 | Frontend | pagina `/` 200, meta popolato |
 | CLI | `--version`, `--list-engines`, `--list-pages`, end-to-end con motore fittizio |
@@ -76,16 +82,16 @@ priorità e parallelismo a livello pagina.
 
 ## 4. Limiti noti / TODO
 
-1. **pdf2zh_next non testato end-to-end qui**: va installato con
-   `./setup_engine.sh`; primo run lento (download modelli). Benchmark costi da fare.
+1. **pdf2zh_next**: validato end-to-end nel container (motore google, 1 pagina).
+   Restano benchmark costi e collaudo LLM reale.
 2. **Installer (`noesis`)**: collaudato su Linux; macOS/Windows girano in CI
    (test + installer `--no-engine`). Resta il **collaudo reale** su macOS e
    Windows nativo e del **bundle offline** end-to-end. Su Windows il cancel
    termina ora l'albero del motore (`taskkill /T /F`); da verificare font e lock
    cache (su Windows `flock` è no-op: ok single-process).
-3. **Licenze**: `pdf2zh_next`/BabelDOC copyleft (AGPL, da verificare) e catena
-   Google con endpoint non ufficiali → **blocco da sciogliere prima del
-   commerciale**. Spike legale + costi pianificati.
+3. **Licenze**: `pdf2zh_next`/BabelDOC/PyMuPDF sono **AGPL-3.0**; aggiunti
+   `LICENSE` (AGPL-3.0) e `NOTICE`. La catena Google usa endpoint non ufficiali →
+   **blocco da sciogliere prima del commerciale**. Spike legale + costi pianificati.
 4. **OCR assente**: le scansioni senza testo non producono output; seam pronto.
 5. **PDF.js opzionale**: l'anteprima usa il server; per il rendering client
    locale va collocata la build in `app/static/vendor/pdfjs/`.
@@ -110,4 +116,11 @@ uv pip install --python .venv/bin/python -q -r requirements.txt pytest httpx
 ./run-api.sh             # solo API (ROLE=api)
 ./run-worker.sh          # un processo worker (WORKER_COUNT=N)
 ./run-cli.sh --help
+```
+
+Docker:
+
+```bash
+docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
+  ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
 ```
