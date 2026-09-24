@@ -22,7 +22,8 @@ Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-
 **Funzionante** (v0.1.0). Verificato end-to-end su un PDF reale (`ha22.pdf`,
 4.132 pagine): upload, anteprima, stima, coda, traduzione, download — sia da
 **server** sia da **CLI**. Motore `pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`.
-Test: **105 passed** (`pytest`, motore fittizio, nessuna rete).
+Test: **223 passed** (`pytest`, motore fittizio, nessuna rete). Disponibile anche
+come **immagine Docker multi-arch** (vedi [Docker](#docker-immagine-pronta-multi-piattaforma)).
 
 ## Architettura
 
@@ -51,7 +52,10 @@ CLI (noesis-cloner) ────────────────────
 - **Coda a priorità** e **multithreading**: pool di worker + parallelismo per
   pagina + limite globale sui processi `pdf2zh_next`.
 - **Si adatta alla macchina (autosizing)** e **scala**: coda condivisa su DB,
-  ruoli `api`/`worker` separabili, guardie RAM/disco.
+  ruoli `api`/`worker` separabili, guardie RAM/disco. In **container** l'autosize
+  legge i **limiti cgroup**.
+- **Docker multi-arch** (`linux/amd64`, `linux/arm64`) su GHCR, **out-of-the-box**
+  (motore e asset inclusi): Linux nativo, Windows/macOS via Docker Desktop.
 - **CLI headless** con batch multi-PDF e barra `tqdm`, senza avviare il server.
 - **Cache condivisa e versionata** (server e CLI riusano le stesse traduzioni).
 - **Predisposto per il commerciale**: seam per autenticazione (Supabase/OIDC/
@@ -77,18 +81,137 @@ LAN). A fine installazione stampa il **report completo di salute/preflight** e i
 Cruscotto quotidiano: `./noesis status` · `logs` · `doctor` · `open` ·
 `start`/`stop`/`restart` · `bundle` (offline) · `update` · `uninstall`.
 
-### Docker (immagine pronta)
+### Docker (immagine pronta, multi-piattaforma)
 
-Immagine **multi-arch** (`linux/amd64`, `linux/arm64`) con tutto incluso: i due
-venv, il motore `pdf2zh_next` e gli **asset BabelDOC pre-scaricati**.
+Alternativa all'installazione: un'**immagine multi-arch** (`linux/amd64`,
+`linux/arm64`) pubblicata su GitHub Container Registry. Contiene **tutto** — i due
+venv, il motore `pdf2zh_next` e gli **asset BabelDOC pre-scaricati** — quindi si
+avvia subito, senza installare nulla.
 
 ```bash
 docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
   ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
-# → http://localhost:18080   (google/bing gratis; llm con -e OPENROUTER_API_KEY=...)
+# → http://localhost:18080
 ```
 
-Compose, scaling API+worker, limiti risorse e build: [`docs/DOCKER.md`](docs/DOCKER.md).
+I motori **`google`** e **`bing`** funzionano subito (gratuiti). Il motore **`llm`**
+richiede la chiave OpenRouter:
+
+```bash
+docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
+  -e OPENROUTER_API_KEY="sk-or-..." \
+  ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+```
+
+#### Dove gira
+
+| Sistema | Come | Immagine |
+|---|---|---|
+| **Linux** | Docker / Podman nativi | `linux/amd64`, `linux/arm64` |
+| **Windows 10/11** | **Docker Desktop** (backend **WSL2**) | `linux/amd64` (o `arm64` su Windows on ARM) |
+| **macOS** | Docker Desktop | `arm64` (Apple Silicon) / `amd64` (Intel) |
+
+> È un'immagine **Linux**: su Windows/macOS gira nel kernel Linux di Docker
+> Desktop. I **container Windows nativi non sono supportati** — per Windows senza
+> Docker c'è l'installer nativo (`.\install.ps1`).
+
+**Requisiti**: Docker Engine (Linux) oppure Docker Desktop con WSL2/Hyper-V
+abilitati (Windows) o Docker Desktop (macOS); ~2 GB di spazio per l'immagine;
+accesso a Internet in uscita (la traduzione contatta Google/Bing/OpenRouter).
+
+#### Avvio rapido
+
+Linux / macOS / WSL:
+
+```bash
+docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
+  ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+```
+
+Windows (PowerShell):
+
+```powershell
+docker run -d --name noesis -p 18080:18080 -v noesis-data:/data `
+  ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+```
+
+Poi apri <http://localhost:18080>. La mappatura `-p 18080:18080` ascolta su tutte
+le interfacce: per l'uso in **LAN** assicurati che il firewall dell'host consenta
+la porta 18080.
+
+#### Docker Compose
+
+```bash
+docker compose up -d          # usa il docker-compose.yml del repo
+```
+
+`docker-compose.yml` imposta porta, volume, `DATA_DIR` e (commentati) i limiti
+`WORKERS`, `PAGE_CONCURRENCY`, `MAX_ENGINE_PROCS` e la `OPENROUTER_API_KEY`.
+
+#### Dati e persistenza
+
+- **`/data`** (volume): upload, cache traduzioni, artefatti, log e `jobs.db`.
+  Usa un **volume nominato** (`-v noesis-data:/data`): è la scelta consigliata
+  anche su Windows/macOS.
+- Con un **bind mount** la cartella deve essere scrivibile dall'utente `noesis`
+  (**uid 1000**): su Linux `sudo chown -R 1000:1000 <cartella>`. Su Docker
+  Desktop preferisci i volumi nominati.
+- Gli **asset del motore** sono già nell'immagine: nessun download alla prima
+  traduzione (serve comunque la rete per tradurre).
+
+#### Configurazione
+
+Tutte le variabili della tabella
+[Configurazione](#configurazione-variabili-dambiente) si passano con `-e NOME=valore`.
+Le più usate nel container: `OPENROUTER_API_KEY`, `WORKERS`, `PAGE_CONCURRENCY`,
+`MAX_ENGINE_PROCS`, `ROLE`, `WORKER_COUNT`, `MAX_UPLOAD_MB`.
+
+#### Limiti di risorse e autosizing
+
+L'autosize legge i **limiti del container** (cgroup), non le risorse dell'host:
+
+```bash
+docker run -d --cpus 2 --memory 4g -p 18080:18080 -v noesis-data:/data \
+  ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+```
+
+calcola i valori per 2 CPU / 4 GB. Per il controllo esplicito:
+`-e WORKERS=2 -e PAGE_CONCURRENCY=2 -e MAX_ENGINE_PROCS=2` (o `-e AUTOSIZE=false`).
+
+#### Scalare (API + worker)
+
+```bash
+# 1 API (accoda) + N worker (eseguono), stesso volume /data
+docker run -d --name noesis-api -p 18080:18080 -v noesis-data:/data \
+  -e ROLE=api -e UVICORN_WORKERS=2 ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+
+for i in 1 2 3 4; do
+  docker run -d --name "noesis-w$i" -v noesis-data:/data \
+    -e ROLE=worker -e WORKER_COUNT=4 ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+done
+```
+
+#### Aggiornare e diagnosticare
+
+```bash
+docker pull ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+docker compose up -d            # ricrea con la nuova immagine (il volume resta)
+
+docker exec noesis ./noesis doctor
+docker exec noesis ./noesis logs -n 50
+curl -s http://localhost:18080/api/v1/health
+```
+
+#### Problemi comuni
+
+| Sintomo | Causa / rimedio |
+|---|---|
+| `address already in use` sulla 18080 | porta occupata → usa `-p 18081:18080` |
+| `'/data' non è scrivibile` | bind mount non scrivibile da uid 1000 → `chown` o volume nominato |
+| Il container non parte su Windows | Docker Desktop non avviato / WSL2 non abilitato |
+| `engine_available: false` | immagine diversa: quella ufficiale include il motore |
+
+Guida estesa (compose, build locale, pubblicazione su GHCR): [`docs/DOCKER.md`](docs/DOCKER.md).
 
 ### Disinstallazione
 

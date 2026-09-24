@@ -20,5 +20,6 @@ dist
 *.egg-info
 docs
 tests
+README.md
 ARCHITETTURA.md
 HANDOFF.md
