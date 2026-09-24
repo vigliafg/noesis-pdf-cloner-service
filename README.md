@@ -146,19 +146,127 @@ la porta 18080.
 
 #### Docker Compose
 
+**Base — un solo container** (`docker-compose.yml`):
+
 ```bash
-docker compose up -d          # usa il docker-compose.yml del repo
+docker compose up -d          # → http://localhost:18080
 ```
 
-`docker-compose.yml` imposta porta, volume, `DATA_DIR` e (commentati) i limiti
-`WORKERS`, `PAGE_CONCURRENCY`, `MAX_ENGINE_PROCS` e la `OPENROUTER_API_KEY`.
+```yaml
+# Noesis PDF Cloner Service — docker compose.
+#
+#   docker compose up -d      →  http://localhost:18080
+#
+# La chiave OpenRouter serve solo al motore `llm` (google/bing sono gratuiti).
+services:
+  noesis:
+    image: ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+    container_name: noesis
+    ports:
+      - "18080:18080"
+    volumes:
+      - noesis-data:/data
+    environment:
+      HOST: 0.0.0.0
+      PORT: "18080"
+      DATA_DIR: /data
+      # Chiave per il motore LLM (opzionale).
+      # OPENROUTER_API_KEY: "sk-or-..."
+      # Limiti espliciti (consigliati): l'autosize legge i limiti del container,
+      # ma dichiararli rende il comportamento prevedibile.
+      # WORKERS: "2"
+      # PAGE_CONCURRENCY: "2"
+      # MAX_ENGINE_PROCS: "2"
+      # Per più worker: 1 container con ROLE=api + N con ROLE=worker e WORKER_COUNT=N
+      # (stesso volume /data).
+    restart: unless-stopped
+    # Limiti di risorse (docker compose v2 li applica al container).
+    # cpus: 2
+    # mem_limit: 4g
 
-Per un deployment **API + worker** con limiti di risorse già pronti usa
-[`docker-compose.prod.yml`](docker-compose.prod.yml):
+volumes:
+  noesis-data:
+```
+
+**Produzione — API + worker** (`docker-compose.prod.yml`):
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+```yaml
+# Noesis PDF Cloner Service — compose di produzione (API + worker).
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Un container API (accoda i job, serve HTTP) e N worker (eseguono i job),
+# con lo stesso volume /data (coda SQLite condivisa) e limiti di risorse.
+#
+# Variabili facoltative (da un file .env accanto a questo file o dall'ambiente):
+#   OPENROUTER_API_KEY, API_WORKERS, API_CPUS, API_MEMORY,
+#   WORKER_REPLICAS, WORKER_CPUS, WORKER_MEMORY
+#
+# Nota: WORKER_REPLICAS deve essere il numero TOTALE di worker (le risorse sono
+# divise per quel numero all'interno di ogni container).
+
+services:
+  api:
+    image: ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+    container_name: noesis-api
+    ports:
+      - "18080:18080"
+    volumes:
+      - noesis-data:/data
+    environment:
+      ROLE: api
+      HOST: 0.0.0.0
+      PORT: "18080"
+      DATA_DIR: /data
+      UVICORN_WORKERS: "${API_WORKERS:-2}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18080/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPUS:-2}"
+          memory: "${API_MEMORY:-2g}"
+
+  worker:
+    image: ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+    # Niente container_name: con più repliche il nome deve essere univoco.
+    volumes:
+      - noesis-data:/data
+    environment:
+      ROLE: worker
+      DATA_DIR: /data
+      WORKER_COUNT: "${WORKER_REPLICAS:-2}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 60s
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: "${WORKER_CPUS:-2}"
+          memory: "${WORKER_MEMORY:-4g}"
+
+volumes:
+  noesis-data:
+```
+
+Variabili facoltative del compose di produzione (da `.env` o dall'ambiente):
+`OPENROUTER_API_KEY`, `API_WORKERS`, `API_CPUS`, `API_MEMORY`,
+`WORKER_REPLICAS`, `WORKER_CPUS`, `WORKER_MEMORY`.
 
 #### Dati e persistenza
 
