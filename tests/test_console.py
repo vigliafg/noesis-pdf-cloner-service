@@ -278,6 +278,18 @@ def test_systemd_unit_system(tmp_path):
     assert "User=tester" in text
 
 
+def test_systemd_unit_includes_uv_when_known(tmp_path):
+    spec = _spec(tmp_path)
+    spec.uv_bin = "/home/tester/.local/bin/uv"
+    expected = "Environment=UV=/home/tester/.local/bin/uv"
+    assert expected in noesis.systemd_unit_text(spec, system=False)
+    assert expected in noesis.systemd_unit_text(spec, system=True)
+
+
+def test_systemd_unit_omits_uv_when_unknown(tmp_path):
+    assert "Environment=UV=" not in noesis.systemd_unit_text(_spec(tmp_path), system=False)
+
+
 def test_launchd_plist(tmp_path):
     text = noesis.launchd_plist_text(_spec(tmp_path), {"HOST": "0.0.0.0"})
     assert "<key>Label</key>" in text
@@ -304,6 +316,12 @@ def test_service_spec_user_from_sudo(tmp_path, monkeypatch):
     monkeypatch.setenv("SUDO_USER", "alice")
     spec = noesis._service_spec(tmp_path, host="0.0.0.0", port=18080)
     assert spec.user == "alice"
+
+
+def test_service_spec_sets_uv_bin(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "find_uv", lambda: "/opt/uv")
+    spec = noesis._service_spec(tmp_path, host="0.0.0.0", port=18080)
+    assert spec.uv_bin == "/opt/uv"
 
 
 # ── firewall ────────────────────────────────────────────────────────────────

@@ -702,11 +702,15 @@ class ServiceSpec:
     data_dir: Path
     role: str = "all"
     user: str = ""
+    uv_bin: str = ""
 
 
 def systemd_unit_text(spec: ServiceSpec, *, system: bool = False) -> str:
     target = "multi-user.target" if system else "default.target"
     user_line = f"User={spec.user}\n" if (system and spec.user) else ""
+    # Il servizio non passa dalle shell di login: esponi il percorso di ``uv``
+    # trovato in fase di install, così la diagnostica non lo segnala assente.
+    uv_line = f"Environment=UV={spec.uv_bin}\n" if spec.uv_bin else ""
     return (
         "[Unit]\n"
         f"Description=Noesis PDF Cloner Service\n"
@@ -717,6 +721,7 @@ def systemd_unit_text(spec: ServiceSpec, *, system: bool = False) -> str:
         f"{user_line}"
         f"EnvironmentFile={spec.env_file}\n"
         f"Environment=ROLE={spec.role}\n"
+        f"{uv_line}"
         f"ExecStart={spec.venv_python} -m uvicorn app.main:app --workers 1 "
         f"--host {spec.host} --port {spec.port}\n"
         "Restart=always\n"
@@ -1167,6 +1172,7 @@ def _service_spec(data_dir: Path, *, host: str, port: int) -> ServiceSpec:
         data_dir=data_dir,
         role=role,
         user=invoking_user(),
+        uv_bin=find_uv() or "",
     )
 
 
