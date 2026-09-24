@@ -241,7 +241,7 @@ vedono **numeri 1-based**; la conversione avviene in un solo punto.
   divide le risorse; soglie disco/RAM bloccano nuovi job con 503.
 - **Perché**: il servizio **si adatta** al VPS (anche dopo resize) ed evita OOM.
 - **Conseguenze**: le env esplicite hanno sempre la precedenza; i valori
-  effettivi sono esposti da `GET /system`.
+  effettivi sono esposti da `GET /api/v1/system`.
 
 ### ADR-010 — Anteprima anti-errore (doppia numerazione)
 - **Decisione**: miniatura della pagina (o prima/ultima del range) con **numero
@@ -383,9 +383,9 @@ cent/pagina); le pagine in cache non si pagano.
 ## 11. Osservabilità e operazioni
 
 - **Log applicativo** + **log per job** (JSONL) con eventi per fase/pagina.
-- **`/metrics`** (Prometheus): job inviati/conclusi/falliti, pagine tradotte,
+- **`/api/v1/metrics`** (Prometheus): job inviati/conclusi/falliti, pagine tradotte,
   lunghezza coda, processi motore attivi.
-- **`/health`** (stato, motore disponibile, ruolo, coda) e **`/system`**
+- **`/api/v1/health`** (stato, motore disponibile, ruolo, coda) e **`/api/v1/system`**
   (risorse, valori effettivi/consigliati).
 - **Janitor**: retention (`JOB_RETENTION_HOURS=72`, documenti 24 h, thumb 168 h).
 - **Deploy**: `run.sh` (all), `run-api.sh`, `run-worker.sh`; systemd

@@ -47,7 +47,7 @@ sessione grafica, apre il browser.
 |---|---|
 | `./noesis install` | venv + motore + config + servizio + pre-warm |
 | `./noesis start` / `stop` / `restart` | avvia/ferma/riavvia in background |
-| `./noesis status` | processo, `/health` e stato del servizio |
+| `./noesis status` | processo, `/api/v1/health` e stato del servizio |
 | `./noesis logs -n 100` | ultime righe di log |
 | `./noesis doctor` | diagnosi completa (cosa manca e perché) |
 | `./noesis open` | apre il frontend nel browser |

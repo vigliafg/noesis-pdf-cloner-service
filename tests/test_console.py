@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import sys
 import tarfile
 from pathlib import Path
@@ -88,6 +89,48 @@ def test_default_data_dir_windows(monkeypatch):
     assert noesis.default_data_dir() == Path("/win/appdata") / noesis.APP_NAME
 
 
+def test_invoking_user_prefers_sudo(monkeypatch):
+    monkeypatch.setenv("USER", "alice")
+    monkeypatch.setenv("LOGNAME", "alice")
+    monkeypatch.delenv("SUDO_USER", raising=False)
+    assert noesis.invoking_user() == "alice"
+    monkeypatch.setenv("SUDO_USER", "bob")
+    assert noesis.invoking_user() == "bob"
+
+
+def test_invoking_home_resolves_sudo_user(monkeypatch):
+    import pwd
+    import types
+
+    monkeypatch.setenv("SUDO_USER", "alice")
+    monkeypatch.setattr(pwd, "getpwnam", lambda name: types.SimpleNamespace(pw_dir="/home/alice"))
+    assert noesis.invoking_home() == Path("/home/alice")
+
+
+def test_invoking_home_unknown_sudo_user_falls_back(monkeypatch):
+    monkeypatch.setenv("SUDO_USER", "no-such-user-xyz")
+    monkeypatch.setattr(noesis.Path, "home", classmethod(lambda cls: Path("/home/fallback")))
+    assert noesis.invoking_home() == Path("/home/fallback")
+
+
+def test_invoking_home_ignores_sudo_root(monkeypatch):
+    monkeypatch.setenv("SUDO_USER", "root")
+    monkeypatch.setattr(noesis.Path, "home", classmethod(lambda cls: Path("/home/fallback")))
+    assert noesis.invoking_home() == Path("/home/fallback")
+
+
+def test_default_data_dir_uses_sudo_home(monkeypatch):
+    import pwd
+    import types
+
+    monkeypatch.setattr(noesis, "is_windows", lambda: False)
+    monkeypatch.setattr(noesis, "is_macos", lambda: False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.setenv("SUDO_USER", "alice")
+    monkeypatch.setattr(pwd, "getpwnam", lambda name: types.SimpleNamespace(pw_dir="/home/alice"))
+    assert noesis.default_data_dir() == Path("/home/alice/.local/share") / noesis.APP_NAME
+
+
 def test_platform_tag_shape():
     tag = noesis.platform_tag()
     assert "-" in tag
@@ -154,6 +197,55 @@ def test_read_pid_invalid(tmp_path):
     assert noesis.read_pid(tmp_path) is None
 
 
+# ── status ──────────────────────────────────────────────────────────────────
+
+
+def _status_args(tmp_path):
+    return noesis.build_parser().parse_args(["status", "--data-dir", str(tmp_path)])
+
+
+class _FakeController:
+    def __init__(self, kind: str, status: str):
+        self._kind = kind
+        self._status = status
+
+    def kind(self) -> str:
+        return self._kind
+
+    def status(self) -> str:
+        return self._status
+
+
+def _patch_service(monkeypatch, kind: str, status: str) -> None:
+    monkeypatch.setattr(noesis, "ServiceController", lambda *a, **k: _FakeController(kind, status))
+
+
+def test_status_ok_when_service_active(tmp_path, monkeypatch):
+    # Servizio systemd attivo, nessun PID file: deve risultare in funzione (exit 0).
+    _patch_service(monkeypatch, "systemd-user", "active")
+    monkeypatch.setattr(noesis, "health_check", lambda *a, **k: True)
+    assert noesis.cmd_status(_status_args(tmp_path), _ui()) == 0
+
+
+def test_status_ok_when_only_health_responds(tmp_path, monkeypatch):
+    _patch_service(monkeypatch, "none", "none")
+    monkeypatch.setattr(noesis, "health_check", lambda *a, **k: True)
+    assert noesis.cmd_status(_status_args(tmp_path), _ui()) == 0
+
+
+def test_status_ok_with_background_pid(tmp_path, monkeypatch):
+    noesis.write_pid(tmp_path, os.getpid())
+    _patch_service(monkeypatch, "none", "none")
+    monkeypatch.setattr(noesis, "health_check", lambda *a, **k: True)
+    assert noesis.cmd_status(_status_args(tmp_path), _ui()) == 0
+
+
+def test_status_fails_when_nothing_running(tmp_path, monkeypatch):
+    _patch_service(monkeypatch, "none", "none")
+    monkeypatch.setattr(noesis, "health_check", lambda *a, **k: False)
+    assert noesis.cmd_status(_status_args(tmp_path), _ui()) == 1
+
+
 # ── servizio: rendering ─────────────────────────────────────────────────────
 
 
@@ -206,6 +298,12 @@ def test_service_spec_uses_env(tmp_path, monkeypatch):
     spec = noesis._service_spec(tmp_path, host="0.0.0.0", port=18080)
     assert spec.role == "api"
     assert spec.env_file == tmp_path / "noesis.env"
+
+
+def test_service_spec_user_from_sudo(tmp_path, monkeypatch):
+    monkeypatch.setenv("SUDO_USER", "alice")
+    spec = noesis._service_spec(tmp_path, host="0.0.0.0", port=18080)
+    assert spec.user == "alice"
 
 
 # ── firewall ────────────────────────────────────────────────────────────────
@@ -463,6 +561,31 @@ def test_uninstall_skips_non_venv(tmp_path, monkeypatch):
     code = noesis.cmd_uninstall(_uninstall_args("--venv", "--data-dir", str(data)), _ui())
     assert code == 0
     assert engine.exists()  # non è un venv: saltato per sicurezza
+
+
+def test_uninstall_missing_engine_skipped_silently(tmp_path, monkeypatch):
+    import shutil
+
+    service, engine, babeldoc, data, _ = _fake_uninstall_env(tmp_path, monkeypatch)
+    shutil.rmtree(engine)  # motore già assente
+    ui = noesis.UI(quiet=True)
+    code = noesis.cmd_uninstall(_uninstall_args("--all", "--yes", "--data-dir", str(data)), ui)
+    assert code == 0
+    # Un path assente non deve produrre l'avviso "non sembra un venv".
+    assert not any("non sembra un venv" in e["message"] for e in ui.events)
+
+
+def test_uninstall_dry_run_marks_absent(tmp_path, monkeypatch):
+    import shutil
+
+    service, engine, babeldoc, data, _ = _fake_uninstall_env(tmp_path, monkeypatch)
+    shutil.rmtree(engine)
+    monkeypatch.setattr(noesis, "DRY_RUN", True)
+    ui = noesis.UI(quiet=True)
+    noesis.cmd_uninstall(_uninstall_args("--all", "--data-dir", str(data)), ui)
+    assert any(
+        "Motore (.venv2)" in e["message"] and "(assente)" in e["message"] for e in ui.events
+    )
 
 
 def test_uninstall_external_cache(tmp_path, monkeypatch):

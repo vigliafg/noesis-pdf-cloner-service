@@ -178,12 +178,14 @@ curl -N http://127.0.0.1:18080/api/v1/jobs/<job_id>/events
 curl -sOJ http://127.0.0.1:18080/api/v1/jobs/<job_id>/download
 ```
 
-Endpoint: `POST/GET/DELETE /documents`, `GET /documents/{id}/thumb`,
-`POST /jobs`, `POST /jobs/estimate`, `GET /jobs`, `GET /jobs/{id}`,
-`GET /jobs/{id}/events`, `GET /jobs/{id}/download`, `POST /jobs/{id}/cancel`,
-`GET /meta`, `GET /system`, `GET /health`, `GET /metrics`.
+Endpoint (prefisso `/api/v1`): `POST/GET/DELETE /api/v1/documents`,
+`GET /api/v1/documents/{id}/thumb`, `POST /api/v1/jobs`,
+`POST /api/v1/jobs/estimate`, `GET /api/v1/jobs`, `GET /api/v1/jobs/{id}`,
+`GET /api/v1/jobs/{id}/events`, `GET /api/v1/jobs/{id}/download`,
+`POST /api/v1/jobs/{id}/cancel`, `GET /api/v1/meta`, `GET /api/v1/system`,
+`GET /api/v1/health`, `GET /api/v1/metrics`.
 
-`GET /health` è **economico**: `engine_available`, `engine_runnable`,
+`GET /api/v1/health` è **economico**: `engine_available`, `engine_runnable`,
 `key_present`, `queue_length`, `workers`, `role` e `status`
 (`ok`/`degraded`). Con **`?deep=1`** esegue la diagnostica completa (rete,
 chiave, modello, catena gratuita) e la espone in `checks` (usa `0`/`1`/`2` come

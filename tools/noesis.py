@@ -11,7 +11,7 @@ Comandi principali::
     noesis start/stop/restart/status/logs
     noesis doctor      diagnosi (cosa manca e perché)
     noesis open        apre il frontend nel browser
-    noesis service     install/enable/disable/uninstall del servizio
+    noesis service     install/uninstall/status del servizio
     noesis bundle      crea un pacchetto offline (wheel + modelli)
     noesis update      aggiorna il codice e le dipendenze
     noesis uninstall   rimuove il servizio e, su scelta, venv/motore/dati/cache
@@ -122,9 +122,32 @@ def venv_bin_dir(venv: Path) -> Path:
     return venv / ("Scripts" if is_windows() else "bin")
 
 
+def invoking_user() -> str:
+    """Utente effettivo dell'installazione, considerando ``sudo`` (``SUDO_USER``)."""
+    return os.environ.get("SUDO_USER") or os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+
+
+def invoking_home() -> Path:
+    """Home dell'utente effettivo.
+
+    Con ``sudo`` l'ambiente viene riscritto (``HOME=/root``, ``USER=root``): per
+    ``--mode system`` serve invece l'home dell'utente che ha invocato, così l'unit
+    punta alla sua installazione (``EnvironmentFile`` e ``User``).
+    """
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user and sudo_user != "root":
+        try:
+            import pwd
+
+            return Path(pwd.getpwnam(sudo_user).pw_dir)
+        except (ImportError, KeyError):
+            pass
+    return Path.home()
+
+
 def default_data_dir() -> Path:
     """Cartella dati standard dell'OS, dedicata a questa applicazione."""
-    home = Path.home()
+    home = invoking_home()
     if is_windows():
         base = Path(os.environ.get("LOCALAPPDATA") or (home / "AppData" / "Local"))
         return base / APP_NAME
@@ -984,7 +1007,7 @@ def doctor_checks(data_dir: Path) -> list[Check]:
     if health_check(host, port):
         checks.append(Check("ok", f"server raggiungibile su {host}:{port}"))
     elif read_pid(data_dir) and process_alive(read_pid(data_dir) or 0):
-        checks.append(Check("warn", "processo attivo ma /health non risponde ancora"))
+        checks.append(Check("warn", "processo attivo ma /api/v1/health non risponde ancora"))
     else:
         checks.append(Check("warn", "server non in esecuzione (`noesis start`)"))
 
@@ -1143,7 +1166,7 @@ def _service_spec(data_dir: Path, *, host: str, port: int) -> ServiceSpec:
         env_file=config_path(data_dir),
         data_dir=data_dir,
         role=role,
-        user=os.environ.get("USER") or os.environ.get("LOGNAME") or "",
+        user=invoking_user(),
     )
 
 
@@ -1198,16 +1221,26 @@ def cmd_status(args: argparse.Namespace, ui: UI) -> int:
     data_dir = Path(args.data_dir).expanduser()
     host, port = resolve_host_port(args, data_dir)
     pid = read_pid(data_dir)
-    running = bool(pid and process_alive(pid))
+    pid_running = bool(pid and process_alive(pid))
     healthy = health_check(host, port)
-    if running:
-        ui.ok(f"processo attivo (pid {pid})" + (", /health ok" if healthy else ", /health non risponde"))
-    else:
-        ui.info("processo non attivo")
     controller = ServiceController(data_dir, ui)
     kind = controller.kind()
+    svc_status = controller.status() if kind != "none" else "none"
+    svc_active = svc_status in {"active", "loaded", "registered"}
+    # Il servizio può essere gestito da systemd/launchd/schtasks (senza PID file):
+    # "attivo" o il solo /api/v1/health valgono come server in funzione.
+    running = pid_running or svc_active or healthy
+    suffix = ", /api/v1/health ok" if healthy else ", /api/v1/health non risponde"
+    if pid_running:
+        ui.ok(f"processo attivo (pid {pid}){suffix}")
+    elif svc_active:
+        ui.ok(f"servizio attivo ({kind}){suffix}")
+    elif healthy:
+        ui.ok(f"server raggiungibile su {host}:{port}")
+    else:
+        ui.info("processo non attivo")
     if kind != "none":
-        ui.info(f"servizio {kind}: {controller.status()}")
+        ui.info(f"servizio {kind}: {svc_status}")
     return 0 if running else 1
 
 
@@ -1434,7 +1467,8 @@ def cmd_uninstall(args: argparse.Namespace, ui: UI) -> int:
     for item in items:
         size = f" ({_fmt_size(item.size)})" if item.size else ""
         if item.selected:
-            ui.info(f"Rimuovo: {item.label} → {item.path}{size}")
+            absent = " (assente)" if (item.path is not None and not item.path.exists()) else ""
+            ui.info(f"Rimuovo: {item.label} → {item.path}{size}{absent}")
         else:
             ui.info(f"Conservo: {item.label} → {item.path}")
 
@@ -1456,10 +1490,10 @@ def cmd_uninstall(args: argparse.Namespace, ui: UI) -> int:
     for item in items:
         if not item.selected or item.path is None:
             continue
+        if not item.path.exists():
+            continue
         if item.key in {"venv", "engine"} and not _is_venv(item.path):
             ui.warn(f"{item.label}: non sembra un venv, salto ({item.path})")
-            continue
-        if not item.path.exists():
             continue
         _remove_path(item.path)
         if item.path.exists():
