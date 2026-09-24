@@ -18,6 +18,11 @@ fi
 rm -f "$DATA_DIR/.write_test"
 
 # Con ROLE=all coda e semafori del motore sono locali → un solo processo uvicorn.
+# Con ROLE=worker si consuma la coda senza esporre HTTP (come run-worker.sh).
+if [ "$ROLE" = "worker" ]; then
+    exec python -m app.worker_main
+fi
+
 workers=1
 if [ "$ROLE" = "api" ]; then
     workers="${UVICORN_WORKERS:-1}"

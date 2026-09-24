@@ -94,7 +94,16 @@ imposta le variabili (e `AUTOSIZE=false` per disattivare del tutto l'autosizing)
 
 Per più worker paralleli: **1 container `ROLE=api`** + **N container
 `ROLE=worker`** che condividono lo **stesso `/data`** (coda su SQLite). Ogni
-worker divide le risorse per `WORKER_COUNT`.
+worker divide le risorse per `WORKER_COUNT`. I worker **non espongono HTTP**
+(eseguono `app.worker_main`), quindi non pubblicano porte.
+
+C'è un compose pronto con limiti di risorse: `docker-compose.prod.yml`.
+
+```bash
+docker compose -f docker-compose.prod.yml up -d      # 1 API + N worker
+```
+
+Oppure a mano:
 
 ```bash
 docker run -d --name noesis-api -p 18080:18080 -v noesis-data:/data \

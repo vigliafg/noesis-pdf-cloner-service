@@ -1,5 +1,10 @@
 # noesis-pdf-cloner-service
 
+[![tests](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/tests.yml/badge.svg)](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/tests.yml)
+[![docker](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/docker.yml/badge.svg)](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/docker.yml)
+[![ghcr.io](https://img.shields.io/badge/ghcr.io-noesis--pdf--cloner--service-2496ED?logo=docker&logoColor=white)](https://github.com/vigliafg/noesis-pdf-cloner-service/pkgs/container/noesis-pdf-cloner-service)
+[![license: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+
 Servizio **server** e **CLI headless** della pipeline di
 [noesis-pdf-cloner](https://github.com/vigliafg/noesis-pdf-cloner): apre un PDF,
 traduce le pagine scelte **preservandone il layout** e le restituisce in un PDF
@@ -147,6 +152,13 @@ docker compose up -d          # usa il docker-compose.yml del repo
 
 `docker-compose.yml` imposta porta, volume, `DATA_DIR` e (commentati) i limiti
 `WORKERS`, `PAGE_CONCURRENCY`, `MAX_ENGINE_PROCS` e la `OPENROUTER_API_KEY`.
+
+Per un deployment **API + worker** con limiti di risorse già pronti usa
+[`docker-compose.prod.yml`](docker-compose.prod.yml):
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
 
 #### Dati e persistenza
 

@@ -126,3 +126,15 @@ jobs:
           echo "--- log del container ---"
           docker logs noesis-smoke | tail -20
           docker rm -f noesis-smoke
+
+          echo "--- worker (ROLE=worker: consuma la coda, nessun HTTP) ---"
+          docker run -d --name noesis-worker -e ROLE=worker \
+            -v noesis-worker-data:/data "$IMG"
+          sleep 8
+          if ! docker logs noesis-worker 2>&1 | grep -q "worker attivo"; then
+            echo "::error::il worker (ROLE=worker) non è partito"
+            docker logs noesis-worker || true
+            exit 1
+          fi
+          echo "worker OK"
+          docker rm -f noesis-worker

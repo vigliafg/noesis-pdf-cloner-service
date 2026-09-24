@@ -1,0 +1,67 @@
+# Noesis PDF Cloner Service — compose di produzione (API + worker).
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Un container API (accoda i job, serve HTTP) e N worker (eseguono i job),
+# con lo stesso volume /data (coda SQLite condivisa) e limiti di risorse.
+#
+# Variabili facoltative (da un file .env accanto a questo file o dall'ambiente):
+#   OPENROUTER_API_KEY, API_WORKERS, API_CPUS, API_MEMORY,
+#   WORKER_REPLICAS, WORKER_CPUS, WORKER_MEMORY
+#
+# Nota: WORKER_REPLICAS deve essere il numero TOTALE di worker (le risorse sono
+# divise per quel numero all'interno di ogni container).
+
+services:
+  api:
+    image: ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+    container_name: noesis-api
+    ports:
+      - "18080:18080"
+    volumes:
+      - noesis-data:/data
+    environment:
+      ROLE: api
+      HOST: 0.0.0.0
+      PORT: "18080"
+      DATA_DIR: /data
+      UVICORN_WORKERS: "${API_WORKERS:-2}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18080/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPUS:-2}"
+          memory: "${API_MEMORY:-2g}"
+
+  worker:
+    image: ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+    # Niente container_name: con più repliche il nome deve essere univoco.
+    volumes:
+      - noesis-data:/data
+    environment:
+      ROLE: worker
+      DATA_DIR: /data
+      WORKER_COUNT: "${WORKER_REPLICAS:-2}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 60s
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: "${WORKER_CPUS:-2}"
+          memory: "${WORKER_MEMORY:-4g}"
+
+volumes:
+  noesis-data:
