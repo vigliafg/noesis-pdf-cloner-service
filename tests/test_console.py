@@ -80,6 +80,14 @@ def test_save_config_sets_private_permissions(tmp_path):
     assert (path.stat().st_mode & 0o777) == 0o600
 
 
+def test_save_config_skips_chmod_on_windows(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "is_windows", lambda: True)
+    called: list[tuple] = []
+    monkeypatch.setattr(noesis.os, "chmod", lambda *a: called.append(a))
+    noesis.save_config(tmp_path, {"HOST": "0.0.0.0"})
+    assert called == []
+
+
 # ── chiave OpenRouter ───────────────────────────────────────────────────────
 
 
@@ -249,6 +257,18 @@ def test_print_summary_shows_local_and_lan_links(tmp_path, monkeypatch):
     messages = " | ".join(e["message"] for e in ui.events)
     assert "locale: http://127.0.0.1:18080" in messages
     assert "LAN: http://10.0.0.5:18080" in messages
+
+
+def test_print_summary_report_flag(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    monkeypatch.setattr(noesis, "wait_for_health", lambda *a, **k: True)
+    monkeypatch.setattr(noesis, "local_ip", lambda: None)
+    calls: list[int] = []
+    monkeypatch.setattr(noesis, "print_health_report", lambda data_dir, ui: calls.append(1))
+    noesis._print_summary(tmp_path, noesis.UI(quiet=True), host="127.0.0.1", port=18080, report=False)
+    assert calls == []
+    noesis._print_summary(tmp_path, noesis.UI(quiet=True), host="127.0.0.1", port=18080, report=True)
+    assert calls == [1]
 
 
 # ── piattaforma / percorsi ──────────────────────────────────────────────────
@@ -514,6 +534,30 @@ def test_systemd_unit_system(tmp_path):
     assert "User=tester" in text
 
 
+def _schtasks_create(tmp_path, monkeypatch, *, system: bool) -> list[str]:
+    spec = _spec(tmp_path)
+    spec.data_dir = tmp_path
+    controller = noesis.ServiceController(tmp_path, noesis.UI(quiet=True), system=system, spec=spec)
+    monkeypatch.setattr(controller, "kind", lambda: "schtasks")
+    monkeypatch.setattr(controller, "windows_runner_path", lambda: tmp_path / "run.cmd")
+    monkeypatch.setattr(controller, "_env", lambda: {})
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(controller, "_run", lambda cmd, **k: calls.append(list(cmd)))
+    controller.install()
+    return next(c for c in calls if c[0] == "schtasks" and "/Create" in c)
+
+
+def test_schtasks_user_mode_onlogon(tmp_path, monkeypatch):
+    create = _schtasks_create(tmp_path, monkeypatch, system=False)
+    assert "ONLOGON" in create and "LIMITED" in create
+
+
+def test_schtasks_system_mode_onstart(tmp_path, monkeypatch):
+    create = _schtasks_create(tmp_path, monkeypatch, system=True)
+    assert "ONSTART" in create and "SYSTEM" in create
+
+
 def test_systemd_unit_includes_uv_when_known(tmp_path):
     spec = _spec(tmp_path)
     spec.uv_bin = "/home/tester/.local/bin/uv"
@@ -539,6 +583,8 @@ def test_windows_runner(tmp_path):
     text = noesis.windows_runner_text(_spec(tmp_path), {"HOST": "0.0.0.0", "PORT": "18080"})
     assert "set HOST=0.0.0.0" in text
     assert "uvicorn" in text
+    # Redirige l'output su file, così `noesis logs` funziona anche su Windows.
+    assert '>> "' in text and "noesis.out" in text
 
 
 def test_service_spec_uses_env(tmp_path, monkeypatch):
@@ -678,6 +724,81 @@ def test_maybe_open_firewall_reports_failure(monkeypatch):
     noesis._maybe_open_firewall(argparse.Namespace(open_firewall=True), ui, port=18080)
     assert any(e["level"] == "error" for e in ui.events)
     assert not any(e["level"] == "ok" for e in ui.events)
+
+
+def test_firewall_active_windows(monkeypatch):
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, "2"))
+    assert noesis.firewall_active("windows") is True
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, "0"))
+    assert noesis.firewall_active("windows") is False
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(1, ""))
+    assert noesis.firewall_active("windows") is None
+
+
+def test_firewall_rule_present_windows(monkeypatch):
+    out = "Rule Name: Noesis PDF Cloner 18080\nLocalPort: 18080\nRemoteIP: LocalSubnet\n"
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, out))
+    assert noesis.firewall_rule_present("windows", 18080, None) is True
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(1, "No rules match the specified criteria."))
+    assert noesis.firewall_rule_present("windows", 18080, None) is False
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(1, ""))
+    assert noesis.firewall_rule_present("windows", 18080, None) is None
+
+
+def test_maybe_open_firewall_windows_warns(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "windows")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: True)
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=False), ui, port=18080)
+    assert any(e["level"] == "warn" and "amministratore" in e["message"] for e in ui.events)
+
+
+def test_maybe_open_firewall_windows_inactive_skips(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "windows")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: False)
+    called: list[int] = []
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: called.append(1))
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=True), ui, port=18080)
+    assert called == []
+    assert any("inattivo" in e["message"] for e in ui.events)
+
+
+def test_maybe_open_firewall_windows_opens(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "windows")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: True)
+    monkeypatch.setattr(noesis, "firewall_rule_present", lambda fw, port, subnet: True)
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    commands: list[list[str]] = []
+    monkeypatch.setattr(noesis, "run_command", lambda cmd, **k: commands.append(list(cmd)) or _cp(0, "Ok."))
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=True), ui, port=18080)
+    assert any(c and c[0] == "netsh" and "remoteip=localsubnet" in c for c in commands)
+    assert any(e["level"] == "ok" and "aperta" in e["message"] for e in ui.events)
+
+
+def test_maybe_open_firewall_windows_elevates_on_failure(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "windows")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: True)
+    monkeypatch.setattr(noesis, "firewall_rule_present", lambda fw, port, subnet: True)
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    monkeypatch.setattr(noesis, "run_command", lambda cmd, **k: _cp(1, "requires elevation"))
+    monkeypatch.setattr(noesis, "_run_elevated_windows", lambda command, ui: True)
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=True), ui, port=18080)
+    assert any(e["level"] == "ok" for e in ui.events)
+
+
+def test_maybe_open_firewall_windows_instructions_on_failure(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "windows")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: True)
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    monkeypatch.setattr(noesis, "run_command", lambda cmd, **k: _cp(1, "requires elevation"))
+    monkeypatch.setattr(noesis, "_run_elevated_windows", lambda command, ui: False)
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=True), ui, port=18080)
+    assert any(e["level"] == "error" for e in ui.events)
+    assert any("comando manuale" in e["message"] for e in ui.events)
 
 
 # ── uvicorn ─────────────────────────────────────────────────────────────────
@@ -886,6 +1007,49 @@ def test_cmd_install_no_service_does_not_wait(tmp_path, monkeypatch):
     ui = noesis.UI(quiet=True)
     assert noesis.cmd_install(_install_args(tmp_path, no_service=True), ui) == 0
     assert called == []  # --no-service: nessuna attesa, solo hint
+
+
+def test_cmd_install_ci_skips_report(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(noesis, "ensure_openrouter_key", lambda data_dir, ui: None)
+    monkeypatch.setattr(noesis, "verify_openrouter_key", lambda data_dir, ui: None)
+    _patch_install_heavy(monkeypatch)
+    calls: list[int] = []
+    monkeypatch.setattr(noesis, "print_health_report", lambda data_dir, ui: calls.append(1))
+    assert noesis.cmd_install(_install_args(tmp_path, ci=True), noesis.UI(quiet=True)) == 0
+    assert calls == []  # --ci: niente report (nessuna rete in CI)
+    assert noesis.cmd_install(_install_args(tmp_path, ci=False), noesis.UI(quiet=True)) == 0
+    assert calls == [1]
+
+
+# ── logs ────────────────────────────────────────────────────────────────────
+
+
+def test_cmd_logs_reads_file(tmp_path, capsys):
+    log = noesis.service_log(tmp_path)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("a\nb\nc\n", encoding="utf-8")
+    args = argparse.Namespace(data_dir=str(tmp_path), lines=2)
+    assert noesis.cmd_logs(args, noesis.UI(quiet=True)) == 0
+    assert capsys.readouterr().out.strip().splitlines() == ["b", "c"]
+
+
+def test_cmd_logs_falls_back_to_journalctl(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(noesis, "is_windows", lambda: False)
+    monkeypatch.setattr(noesis, "is_macos", lambda: False)
+    monkeypatch.setattr(noesis.shutil, "which", lambda name: "/usr/bin/journalctl" if name == "journalctl" else None)
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, "journal line 1\njournal line 2"))
+    args = argparse.Namespace(data_dir=str(tmp_path), lines=5)
+    assert noesis.cmd_logs(args, noesis.UI(quiet=True)) == 0
+    assert "journal line 1" in capsys.readouterr().out
+
+
+def test_cmd_logs_no_log_returns_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "is_windows", lambda: True)  # niente fallback journalctl
+    ui = noesis.UI(quiet=True)
+    args = argparse.Namespace(data_dir=str(tmp_path), lines=5)
+    assert noesis.cmd_logs(args, ui) == 1
+    assert any(e["level"] == "warn" for e in ui.events)
 
 
 # ── uninstall ───────────────────────────────────────────────────────────────

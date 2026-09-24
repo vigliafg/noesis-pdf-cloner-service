@@ -299,8 +299,9 @@ Subito dopo verifica **chiave, credito e modello** (stessi check di
 ```
 
 I test usano un **motore fittizio** (nessuna rete, nessun `pdf2zh_next`).
-La CI (`.github/workflows/tests.yml`) esegue i test su **Linux, macOS e Windows**
-e prova l'installer end-to-end (`noesis install --no-engine` + `doctor`).
+La CI (`.github/workflows/tests.yml`) esegue i test su **Linux, macOS e Windows**,
+prova l'installer end-to-end (`noesis install --no-engine` + `doctor`) e su Windows
+verifica il **servizio** (Task Scheduler), il **firewall scoped** e i **log**.
 
 ## Struttura
 

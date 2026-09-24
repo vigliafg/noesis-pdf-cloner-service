@@ -104,7 +104,7 @@ Dopo una modifica manuale del file: `./noesis restart`.
 
 - Per la LAN potrebbe servire aprire la porta 18080: `./noesis install --open-firewall`
   aggiunge una regola **limitata alla sottorete locale** (es. `192.168.1.0/24`) e ne
-  **verifica** l'esito (ufw/firewalld; su Windows richiede un terminale amministratore).
+  **verifica** l'esito (ufw/firewalld/netsh; su Windows prova l'elevazione UAC).
   Se il firewall è **inattivo** non fa nulla (la porta è già raggiungibile in LAN).
 - `./noesis doctor` spiega ogni blocco, **incluso WSL**: da WSL la porta non è
   visibile in LAN senza `networkingMode=mirrored` (Windows 11) o un `portproxy`.
@@ -118,17 +118,35 @@ Dopo una modifica manuale del file: `./noesis restart`.
 |---|---|
 | Linux | **systemd user** (`~/.config/systemd/user/`), con `enable-linger` |
 | macOS | **launchd** (`~/Library/LaunchAgents/`) |
-| Windows | **Task Scheduler** (all'accesso) |
+| Windows | **Task Scheduler** (all'accesso; con `--mode system` all'avvio senza login, admin) |
 | WSL senza systemd | avvio in background; `doctor` spiega come abilitare systemd |
 
-- `--mode system` usa il servizio di sistema (richiede root): predisposto per il
-  futuro deploy su VPS.
+- `--mode system` usa il servizio di sistema (richiede root/amministratore):
+  su Linux `systemd` di sistema, su Windows Task Scheduler `ONSTART`/`SYSTEM`
+  (parte all'avvio anche senza login). Predisposto per il futuro deploy su VPS.
 - `--no-service` fa solo il setup e non tocca il sistema.
 
 ## Windows
 
 - **WSL2** (consigliato): esegui `./install.sh` **dentro** la distro Linux.
-- **Nativo** (best effort): `.\install.ps1` (o `.\noesis.cmd install`).
+- **Nativo**: `.\install.ps1` (o `.\noesis.cmd install`).
+
+Sul nativo valgono le stesse funzioni del resto dell'installer:
+
+- **Chiave OpenRouter**: prompt nascosto in install, salvata in `<data_dir>\noesis.env`
+  (nessuna restrizione ACL: il profilo utente Windows è già protetto per utente),
+  con verifica di chiave/credito/modello.
+- **Avvio automatico**: di default all'accesso (Task Scheduler, `ONLOGON`); con
+  `--mode system` all'avvio del PC **senza login** (`ONSTART`/`SYSTEM`, richiede
+  amministratore).
+- **Firewall**: `--open-firewall` aggiunge una regola `netsh` **limitata alla
+  sottorete locale** (`remoteip=localsubnet`) e la **verifica**; senza privilegi
+  prova l'elevazione (UAC) e, se non riesce, stampa il comando per PowerShell
+  amministratore.
+- **Log**: il runner redirige su `<data_dir>\logs\noesis.out`, quindi
+  `.\noesis.cmd logs` funziona come su Linux.
+- **Report e link**: a fine installazione stampa il report di salute/preflight e
+  gli URL locale/LAN (cliccabili dove il terminale supporta gli hyperlink).
 
 ## Bundle offline (installazione su più macchine)
 

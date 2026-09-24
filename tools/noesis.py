@@ -382,11 +382,13 @@ def save_config(data_dir: Path, values: dict[str, str], *, overwrite: bool = Fal
         path.write_text(render_config(merged), encoding="utf-8")
     else:
         path.write_text(render_config(values), encoding="utf-8")
-    # Il file può contenere segreti (OPENROUTER_API_KEY): accesso solo all'utente.
-    try:
-        os.chmod(path, 0o600)
-    except OSError:  # pragma: no cover - filesystem senza chmod
-        pass
+    # Il file può contenere segreti (OPENROUTER_API_KEY): su POSIX accesso solo
+    # all'utente. Su Windows si affida alla protezione per-utente del profilo.
+    if not is_windows():
+        try:
+            os.chmod(path, 0o600)
+        except OSError:  # pragma: no cover - filesystem senza chmod
+            pass
     return path
 
 
@@ -972,6 +974,7 @@ def launchd_plist_text(spec: ServiceSpec, env: dict[str, str]) -> str:
 
 
 def windows_runner_text(spec: ServiceSpec, env: dict[str, str]) -> str:
+    log = spec.data_dir / "logs" / "noesis.out"
     lines = ["@echo off", "setlocal"]
     for key, value in sorted(env.items()):
         lines.append(f"set {key}={value}")
@@ -982,7 +985,8 @@ def windows_runner_text(spec: ServiceSpec, env: dict[str, str]) -> str:
         ]
     )
     lines.append(f'cd /d "{spec.repo_root}"')
-    lines.append(args)
+    lines.append(f'if not exist "{log.parent}" mkdir "{log.parent}"')
+    lines.append(f'{args} >> "{log}" 2>&1')
     return "\r\n".join(lines) + "\r\n"
 
 
@@ -1064,10 +1068,16 @@ class ServiceController:
             path = self.windows_runner_path()
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(windows_runner_text(self.spec, self._env()), encoding="utf-8")
-            self._run(["schtasks", "/Create", "/TN", SERVICE_NAME, "/SC", "ONLOGON",
-                       "/RL", "LIMITED", "/TR", str(path), "/F"])
+            create = ["schtasks", "/Create", "/TN", SERVICE_NAME, "/TR", str(path), "/F"]
+            if self.system:
+                # All'accensione, anche senza login: richiede amministratore.
+                create += ["/SC", "ONSTART", "/RU", "SYSTEM", "/RL", "HIGHEST"]
+            else:
+                create += ["/SC", "ONLOGON", "/RL", "LIMITED"]
+            self._run(create)
             self._run(["schtasks", "/Run", "/TN", SERVICE_NAME], check=False)
-            self.ui.ok(f"attività pianificata installata: {path}")
+            mode = "system" if self.system else "user"
+            self.ui.ok(f"attività pianificata installata ({mode}): {path}")
         else:
             self.ui.warn(
                 "nessun gestore di servizi disponibile (systemd/launchd/Task Scheduler): "
@@ -1213,6 +1223,14 @@ def firewall_active(fw: str) -> bool | None:
             return True
         if out == "not running":
             return False
+    if fw == "windows":
+        # Get-NetFirewallProfile espone la proprietà Enabled (True/False), non
+        # dipendente dalla lingua dell'output.
+        cmd = ["powershell", "-NoProfile", "-Command",
+               "(Get-NetFirewallProfile | Where-Object { $_.Enabled -eq $true }).Count"]
+        out = (run_command(cmd, check=False, capture=True).stdout or "").strip()
+        if out.isdigit():
+            return int(out) > 0
     return None
 
 
@@ -1239,6 +1257,16 @@ def firewall_rule_present(fw: str, port: int, subnet: str | None) -> bool | None
         if not out.strip():
             return None
         return str(port) in out and (subnet is None or subnet in out)
+    if fw == "windows":
+        out = run_command(
+            ["netsh", "advfirewall", "firewall", "show", "rule",
+             f"name=Noesis PDF Cloner {port}"],
+            check=False, capture=True,
+        ).stdout or ""
+        if not out.strip():
+            return None
+        # Il messaggio "nessuna regola" è localizzato; il numero di porta no.
+        return str(port) in out
     return None
 
 
@@ -1448,7 +1476,7 @@ def cmd_install(args: argparse.Namespace, ui: UI) -> int:
             warn_if_port_busy(host, port, ui)
         spec = _service_spec(data_dir, host=host, port=port)
         ServiceController(data_dir, ui, system=args.mode == "system", spec=spec).install()
-    _print_summary(data_dir, ui, host=host, port=port, started=not args.no_service)
+    _print_summary(data_dir, ui, host=host, port=port, started=not args.no_service, report=not args.ci)
     if not args.no_browser and not args.ci and has_display():
         _open_browser(host, port, ui)
     return 0
@@ -1514,16 +1542,68 @@ def _maybe_open_firewall(args: argparse.Namespace, ui: UI, *, port: int) -> None
         else:
             ui.ok(f"porta {port}/tcp aperta{scope} ({fw})")
     elif fw == "windows":
-        ui.warn("firewall Windows: per la LAN esegui `noesis install --open-firewall` (da terminale admin)")
+        _open_firewall_windows(args, ui, port=port)
 
 
-def _print_summary(data_dir: Path, ui: UI, *, host: str, port: int, started: bool = True) -> None:
+def _run_elevated_windows(command: Sequence[str], ui: UI) -> bool:
+    """Rilancia ``command`` con UAC (``Start-Process -Verb RunAs``). True se ok."""
+    if DRY_RUN or not is_windows():
+        return False
+    exe = command[0]
+    arg_list = ", ".join("'" + str(a).replace("'", "''") + "'" for a in command[1:])
+    script = (
+        f"$p = Start-Process -Verb RunAs -Wait -PassThru -FilePath '{exe}' "
+        f"-ArgumentList {arg_list}; exit $p.ExitCode"
+    )
+    result = run_command(
+        ["powershell", "-NoProfile", "-Command", script],
+        check=False, capture=True, ui=ui,
+    )
+    return result.returncode == 0
+
+
+def _open_firewall_windows(args: argparse.Namespace, ui: UI, *, port: int) -> None:
+    command = firewall_open_command("windows", port)
+    if not command:
+        return
+    pretty = " ".join(command)
+    active = firewall_active("windows")
+    if not args.open_firewall:
+        if active is False:
+            ui.info(f"firewall Windows inattivo: la porta {port} è già raggiungibile in LAN")
+        else:
+            ui.warn("firewall Windows attivo: per la LAN apri la porta con "
+                    "`noesis install --open-firewall` (PowerShell amministratore)")
+        return
+    if active is False:
+        ui.info(f"firewall Windows inattivo: nessuna regola necessaria "
+                f"(la porta {port} è già raggiungibile in LAN)")
+        return
+    if DRY_RUN:
+        ui.info(f"[dry-run] {pretty}")
+        return
+    result = run_command(command, check=False, capture=True, ui=ui)
+    if result.returncode != 0:
+        # Serve l'elevazione: prova con UAC, altrimenti istruzioni.
+        if not _run_elevated_windows(command, ui):
+            ui.error(f"apertura porta {port}/tcp non riuscita (serve amministratore)")
+            ui.info(f"comando manuale (PowerShell amministratore): {pretty}")
+            return
+    present = firewall_rule_present("windows", port, None)
+    if present is False:
+        ui.warn(f"porta {port}/tcp: regola non confermata nel firewall Windows")
+    else:
+        ui.ok(f"porta {port}/tcp aperta (solo sottorete locale) (windows firewall)")
+
+
+def _print_summary(data_dir: Path, ui: UI, *, host: str, port: int, started: bool = True, report: bool = True) -> None:
     ui.section("Riepilogo")
     ui.info(f"cartella dati: {data_dir}")
     ui.info(f"config: {config_path(data_dir)}")
     ui.info(f"log: {service_log(data_dir)}")
 
-    print_health_report(data_dir, ui)
+    if report:
+        print_health_report(data_dir, ui)
 
     ui.section("Avvia")
     for url in server_urls(host, port):
@@ -1594,11 +1674,23 @@ def cmd_logs(args: argparse.Namespace, ui: UI) -> int:
     data_dir = Path(args.data_dir).expanduser()
     log = service_log(data_dir)
     if not log.is_file():
+        # Il servizio systemd scrive su journald, non su file.
+        if not is_windows() and not is_macos() and shutil.which("journalctl"):
+            try:
+                result = run_command(
+                    ["journalctl", "--user", "-u", SERVICE_NAME,
+                     "-n", str(args.lines), "--no-pager"],
+                    check=False, capture=True,
+                )
+            except CommandError:
+                result = None
+            if result is not None and result.returncode == 0 and (result.stdout or "").strip():
+                print(result.stdout.strip())
+                return 0
         ui.warn(f"nessun log: {log}")
         return 1
     text = log.read_text(encoding="utf-8", errors="replace").splitlines()
-    lines = text[-args.lines:]
-    for line in lines:
+    for line in text[-args.lines:]:
         print(line)
     return 0
 

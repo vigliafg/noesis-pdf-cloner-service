@@ -61,3 +61,41 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: .\noesis.cmd uninstall --dry-run --data-dir "$env:RUNNER_TEMP/noesis-data"
+      - name: Report + link (Linux/macOS, senza --ci)
+        if: runner.os != 'Windows'
+        run: ./noesis install --no-service --no-engine --skip-warm --no-browser --data-dir "$RUNNER_TEMP/noesis-report"
+      - name: Report + link (Windows, senza --ci)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\noesis.cmd install --no-service --no-engine --skip-warm --no-browser --data-dir "$env:RUNNER_TEMP/noesis-report"
+
+  # End-to-end su Windows: servizio (Task Scheduler), firewall scoped, log.
+  # I runner windows-latest hanno privilegi di amministratore.
+  windows-service:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installa uv
+        uses: astral-sh/setup-uv@v5
+      - name: Install (servizio + report)
+        shell: pwsh
+        run: .\noesis.cmd install --no-engine --skip-warm --no-browser --data-dir "$env:RUNNER_TEMP\noesis-svc"
+      - name: Attività pianificata presente
+        shell: pwsh
+        run: schtasks /Query /TN noesis-pdf-cloner-service
+      - name: Health
+        shell: pwsh
+        run: |
+          Start-Sleep -Seconds 20
+          (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/api/v1/health).Content
+      - name: Firewall scoped (--open-firewall)
+        shell: pwsh
+        run: |
+          .\noesis.cmd install --no-engine --skip-warm --no-browser --open-firewall --data-dir "$env:RUNNER_TEMP\noesis-svc"
+          netsh advfirewall firewall show rule name="Noesis PDF Cloner 18080"
+      - name: Logs
+        shell: pwsh
+        run: .\noesis.cmd logs -n 5 --data-dir "$env:RUNNER_TEMP\noesis-svc"
+      - name: Uninstall
+        shell: pwsh
+        run: .\noesis.cmd uninstall --all -y --data-dir "$env:RUNNER_TEMP\noesis-svc"
