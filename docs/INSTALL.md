@@ -41,6 +41,18 @@ curl -LsSf https://raw.githubusercontent.com/vigliafg/noesis-pdf-cloner-service/
 A fine installazione la console stampa gli URL (locale + LAN) e, se c'è una
 sessione grafica, apre il browser.
 
+Durante l'installazione, se la chiave non è già presente, la console chiede la
+**chiave OpenRouter** (opzionale, serve solo al motore `llm`): input **nascosto**,
+`Invio` per saltare. La chiave è salvata in `<data_dir>/noesis.env` con permessi
+`0600`, poi la console **verifica chiave, credito e modello** (gli stessi check di
+`noesis doctor` / `GET /api/v1/health?deep=1`). In modalità non interattiva
+(`--ci`, `curl | bash`) non viene chiesto nulla e resta solo un promemoria.
+
+A fine installazione la console attende che il servizio risponda (fino a **30 s**)
+e conferma `porta 18080 raggiungibile`; se la porta è **già occupata** da un altro
+processo lo segnala **prima** di avviare. Il riepilogo distingue l'URL **locale**
+da quello **LAN**.
+
 ## Comandi del cruscotto
 
 | Comando | Cosa fa |
@@ -76,13 +88,23 @@ Precedenza: **opzione CLI > variabile d'ambiente della shell > `noesis.env` >
 default**. I segreti (`OPENROUTER_API_KEY`) vanno **solo** qui o nell'ambiente,
 mai nel codice.
 
+La chiave OpenRouter (solo motore `llm`) può essere inserita in tre modi:
+- durante `./noesis install` — prompt nascosto, se la sessione è interattiva, con
+  **verifica immediata** di chiave, credito e modello;
+- in `<data_dir>/noesis.env` come `OPENROUTER_API_KEY=…` (il file è scritto a `0600`);
+- nell'ambiente (`OPENROUTER_API_KEY=…`), che ha **precedenza**.
+
+Dopo una modifica manuale del file: `./noesis restart`.
+
 ## Standalone e LAN
 
 `HOST=0.0.0.0` (default) copre **entrambi**: in locale usi
 `http://127.0.0.1:18080`, in LAN `http://<ip-della-macchina>:18080`.
 
 - Per la LAN potrebbe servire aprire la porta 18080: `./noesis install --open-firewall`
-  (rileva `ufw`/`firewalld`; su Windows richiede un terminale amministratore).
+  aggiunge una regola **limitata alla sottorete locale** (es. `192.168.1.0/24`) e ne
+  **verifica** l'esito (ufw/firewalld; su Windows richiede un terminale amministratore).
+  Se il firewall è **inattivo** non fa nulla (la porta è già raggiungibile in LAN).
 - `./noesis doctor` spiega ogni blocco, **incluso WSL**: da WSL la porta non è
   visibile in LAN senza `networkingMode=mirrored` (Windows 11) o un `portproxy`.
   In locale su WSL funziona comunque.

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
+import pytest
 import sys
 import tarfile
 from pathlib import Path
@@ -64,6 +66,125 @@ def test_build_env_shell_wins_over_config(tmp_path):
     assert env["HOST"] == "10.0.0.1"       # la shell vince
     assert env["PORT"] == "18080"          # il resto dalla config
     assert env["DATA_DIR"] == str(tmp_path)
+
+
+def test_render_config_omits_placeholder_when_key_present():
+    text = noesis.render_config({"HOST": "0.0.0.0", "OPENROUTER_API_KEY": "sk-or-x"})
+    assert "OPENROUTER_API_KEY=sk-or-x" in text
+    assert "# OPENROUTER_API_KEY=" not in text  # niente riga duplicata/commentata
+
+
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="permessi POSIX")
+def test_save_config_sets_private_permissions(tmp_path):
+    path = noesis.save_config(tmp_path, {"HOST": "0.0.0.0"})
+    assert (path.stat().st_mode & 0o777) == 0o600
+
+
+# ── chiave OpenRouter ───────────────────────────────────────────────────────
+
+
+def test_ensure_openrouter_key_skips_when_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env")
+    noesis.ensure_openrouter_key(tmp_path, noesis.UI(quiet=True))
+    assert not noesis.config_path(tmp_path).exists()
+
+
+def test_ensure_openrouter_key_skips_when_in_config(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    noesis.save_config(tmp_path, {"OPENROUTER_API_KEY": "sk-or-cfg"})
+    noesis.ensure_openrouter_key(tmp_path, noesis.UI(quiet=True))
+    assert noesis.load_config(tmp_path)["OPENROUTER_API_KEY"] == "sk-or-cfg"
+
+
+def test_ensure_openrouter_key_writes_when_prompted(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(noesis.UI, "is_interactive", lambda self: True)
+    monkeypatch.setattr(noesis.UI, "prompt_secret", lambda self, q: "sk-or-typed")
+    noesis.ensure_openrouter_key(tmp_path, noesis.UI(quiet=True))
+    assert noesis.load_config(tmp_path)["OPENROUTER_API_KEY"] == "sk-or-typed"
+
+
+def test_ensure_openrouter_key_empty_input_does_nothing(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(noesis.UI, "is_interactive", lambda self: True)
+    monkeypatch.setattr(noesis.UI, "prompt_secret", lambda self, q: "")
+    noesis.ensure_openrouter_key(tmp_path, noesis.UI(quiet=True))
+    assert not noesis.config_path(tmp_path).exists()
+
+
+def test_ensure_openrouter_key_non_interactive_never_prompts(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(noesis.UI, "is_interactive", lambda self: False)
+    called: list[str] = []
+    monkeypatch.setattr(noesis.UI, "prompt_secret", lambda self, q: called.append(q) or "x")
+    noesis.ensure_openrouter_key(tmp_path, noesis.UI(quiet=True))
+    assert called == []
+    assert not noesis.config_path(tmp_path).exists()
+
+
+# ── verifica chiave/modello OpenRouter ──────────────────────────────────────
+
+
+def _fake_venv(tmp_path):
+    venv = tmp_path / "venv"
+    py = noesis.venv_python_in(venv)
+    py.parent.mkdir(parents=True, exist_ok=True)
+    py.write_text("", encoding="utf-8")
+    return venv
+
+
+def test_verify_openrouter_key_without_key_does_nothing(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    called: list[int] = []
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: called.append(1))
+    assert noesis.verify_openrouter_key(tmp_path, noesis.UI(quiet=True)) is False
+    assert called == []
+
+
+def test_verify_openrouter_key_requires_venv(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
+    monkeypatch.setattr(noesis, "service_venv", lambda: tmp_path / "missing")
+    called: list[int] = []
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: called.append(1))
+    assert noesis.verify_openrouter_key(tmp_path, noesis.UI(quiet=True)) is False
+    assert called == []
+
+
+def test_verify_openrouter_key_ok(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
+    monkeypatch.setattr(noesis, "service_venv", lambda: _fake_venv(tmp_path))
+    payload = json.dumps([
+        {"id": "key.valid", "status": "ok", "code": "key_valid", "message": "", "data": {}},
+        {"id": "key.credits", "status": "ok", "code": "ok", "message": "",
+         "data": {"limit_remaining": 5.0}},
+        {"id": "llm.model", "status": "ok", "code": "model_ok", "message": "HTTP 200", "data": {}},
+    ])
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, payload))
+    ui = noesis.UI(quiet=True)
+    assert noesis.verify_openrouter_key(tmp_path, ui) is True
+    messages = " | ".join(e["message"] for e in ui.events)
+    assert "modello LLM: ok" in messages
+    assert "residuo 5.0" in messages
+
+
+def test_verify_openrouter_key_invalid(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
+    monkeypatch.setattr(noesis, "service_venv", lambda: _fake_venv(tmp_path))
+    payload = json.dumps([
+        {"id": "key.valid", "status": "fail", "code": "invalid_key",
+         "message": "HTTP 401", "data": {}},
+    ])
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, payload))
+    ui = noesis.UI(quiet=True)
+    assert noesis.verify_openrouter_key(tmp_path, ui) is False
+    assert any(e["level"] == "warn" and "invalid_key" in e["message"] for e in ui.events)
+
+
+def test_verify_openrouter_key_garbage_output(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
+    monkeypatch.setattr(noesis, "service_venv", lambda: _fake_venv(tmp_path))
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, "Traceback (most recent call last):"))
+    assert noesis.verify_openrouter_key(tmp_path, noesis.UI(quiet=True)) is False
 
 
 # ── piattaforma / percorsi ──────────────────────────────────────────────────
@@ -166,6 +287,57 @@ def test_server_urls_binds_all_interfaces(monkeypatch):
 def test_server_urls_localhost_only():
     urls = noesis.server_urls("127.0.0.1", 18080)
     assert urls == ["http://127.0.0.1:18080"]
+
+
+def test_port_listening_detects_and_releases():
+    import socket as _socket
+
+    server = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    try:
+        assert noesis.port_listening("127.0.0.1", port) is True
+    finally:
+        server.close()
+    assert noesis.port_listening("127.0.0.1", port) is False
+
+
+def test_warn_if_port_busy_warns_for_foreign_process(monkeypatch):
+    monkeypatch.setattr(noesis, "port_listening", lambda *a, **k: True)
+    monkeypatch.setattr(noesis, "health_check", lambda *a, **k: False)
+    ui = noesis.UI(quiet=True)
+    assert noesis.warn_if_port_busy("0.0.0.0", 18080, ui) is True
+    assert any(e["level"] == "warn" and "già in ascolto" in e["message"] for e in ui.events)
+
+
+def test_warn_if_port_busy_ignores_our_service(monkeypatch):
+    monkeypatch.setattr(noesis, "port_listening", lambda *a, **k: True)
+    monkeypatch.setattr(noesis, "health_check", lambda *a, **k: True)
+    assert noesis.warn_if_port_busy("0.0.0.0", 18080, noesis.UI(quiet=True)) is False
+
+
+def test_warn_if_port_busy_free_port(monkeypatch):
+    monkeypatch.setattr(noesis, "port_listening", lambda *a, **k: False)
+    assert noesis.warn_if_port_busy("0.0.0.0", 18080, noesis.UI(quiet=True)) is False
+
+
+def test_wait_for_health_returns_when_ready(monkeypatch):
+    calls = {"n": 0}
+
+    def fake(*a, **k):
+        calls["n"] += 1
+        return calls["n"] >= 2
+
+    monkeypatch.setattr(noesis, "health_check", fake)
+    monkeypatch.setattr(noesis.time, "sleep", lambda _seconds: None)
+    assert noesis.wait_for_health("127.0.0.1", 18080, timeout=5.0, interval=0.0) is True
+    assert calls["n"] == 2
+
+
+def test_wait_for_health_times_out(monkeypatch):
+    monkeypatch.setattr(noesis, "health_check", lambda *a, **k: False)
+    assert noesis.wait_for_health("127.0.0.1", 18080, timeout=0.0) is False
 
 
 # ── risoluzione host/porta ──────────────────────────────────────────────────
@@ -329,10 +501,119 @@ def test_service_spec_sets_uv_bin(tmp_path, monkeypatch):
 
 def test_firewall_commands():
     assert noesis.firewall_open_command("ufw", 18080) == ["sudo", "ufw", "allow", "18080/tcp"]
+    assert noesis.firewall_open_command("ufw", 18080, "192.168.1.0/24") == [
+        "sudo", "ufw", "allow", "from", "192.168.1.0/24",
+        "to", "any", "port", "18080", "proto", "tcp",
+    ]
     assert "firewall-cmd" in noesis.firewall_open_command("firewalld", 18080)
+    firewalld_scoped = noesis.firewall_open_command("firewalld", 18080, "192.168.1.0/24")
+    assert any("192.168.1.0/24" in part for part in firewalld_scoped)
     win = noesis.firewall_open_command("windows", 18080)
     assert win is not None and "netsh" in win
     assert noesis.firewall_open_command("macos", 18080) is None
+
+
+def test_local_subnet_from_default_route(monkeypatch):
+    monkeypatch.setattr(noesis.shutil, "which", lambda name: "/usr/sbin/ip" if name == "ip" else None)
+
+    def fake(cmd, **k):
+        if "route" in cmd:
+            return _cp(0, "default via 192.168.1.1 dev wlp3s0 proto static src 192.168.1.125 metric 600")
+        if "addr" in cmd:
+            return _cp(0, "3: wlp3s0    inet 192.168.1.125/24 brd 192.168.1.255 scope global wlp3s0")
+        return _cp(0, "")
+
+    monkeypatch.setattr(noesis, "run_command", fake)
+    assert noesis.local_subnet() == "192.168.1.0/24"
+
+
+def test_local_subnet_none_without_ip(monkeypatch):
+    monkeypatch.setattr(noesis.shutil, "which", lambda name: None)
+    assert noesis.local_subnet() is None
+
+
+def test_ufw_enabled_reads_conf(tmp_path, monkeypatch):
+    conf = tmp_path / "ufw.conf"
+    monkeypatch.setattr(noesis, "UFW_CONF", conf)
+    conf.write_text("ENABLED=yes\n", encoding="utf-8")
+    assert noesis.ufw_enabled() is True
+    conf.write_text("ENABLED=no\n", encoding="utf-8")
+    assert noesis.ufw_enabled() is False
+
+
+def test_ufw_enabled_falls_back_to_status(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "UFW_CONF", tmp_path / "missing.conf")
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, "Stato: inattivo"))
+    assert noesis.ufw_enabled() is False
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, "Stato: attivo"))
+    assert noesis.ufw_enabled() is True
+
+
+def test_firewall_rule_present_ufw(monkeypatch):
+    out = "To                         Action      From\n--                         ------      ----\n18080/tcp                  ALLOW       192.168.1.0/24\n"
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, out))
+    assert noesis.firewall_rule_present("ufw", 18080, "192.168.1.0/24") is True
+    assert noesis.firewall_rule_present("ufw", 18080, "10.0.0.0/8") is False
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, ""))
+    assert noesis.firewall_rule_present("ufw", 18080, None) is None
+
+
+def test_maybe_open_firewall_warns_when_active(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "ufw")
+    monkeypatch.setattr(noesis, "local_subnet", lambda: "192.168.1.0/24")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: True)
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=False), ui, port=18080)
+    assert any(e["level"] == "warn" and "192.168.1.0/24" in e["message"] for e in ui.events)
+
+
+def test_maybe_open_firewall_skips_when_inactive(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "ufw")
+    monkeypatch.setattr(noesis, "local_subnet", lambda: "192.168.1.0/24")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: False)
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=False), ui, port=18080)
+    assert any("già raggiungibile" in e["message"] for e in ui.events)
+    assert not any(e["level"] == "warn" for e in ui.events)
+
+
+def test_maybe_open_firewall_opens_scoped_rule(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "ufw")
+    monkeypatch.setattr(noesis, "local_subnet", lambda: "192.168.1.0/24")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: True)
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    monkeypatch.setattr(noesis, "firewall_rule_present", lambda fw, port, subnet: True)
+    commands: list[list[str]] = []
+    monkeypatch.setattr(noesis, "run_command", lambda cmd, **k: commands.append(list(cmd)) or _cp(0, "Rule added"))
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=True), ui, port=18080)
+    assert ["sudo", "ufw", "allow", "from", "192.168.1.0/24",
+            "to", "any", "port", "18080", "proto", "tcp"] in commands
+    assert any(e["level"] == "ok" and "192.168.1.0/24" in e["message"] for e in ui.events)
+
+
+def test_maybe_open_firewall_inactive_skips_even_with_flag(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "ufw")
+    monkeypatch.setattr(noesis, "local_subnet", lambda: "192.168.1.0/24")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: False)
+    commands: list[list[str]] = []
+    monkeypatch.setattr(noesis, "run_command", lambda cmd, **k: commands.append(list(cmd)) or _cp(0, ""))
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=True), ui, port=18080)
+    assert commands == []  # niente regola: ufw è inattivo
+    assert any("inattivo" in e["message"] for e in ui.events)
+
+
+def test_maybe_open_firewall_reports_failure(monkeypatch):
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: "ufw")
+    monkeypatch.setattr(noesis, "local_subnet", lambda: "192.168.1.0/24")
+    monkeypatch.setattr(noesis, "firewall_active", lambda fw: True)
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    monkeypatch.setattr(noesis, "run_command", lambda cmd, **k: _cp(1, "permission denied"))
+    ui = noesis.UI(quiet=True)
+    noesis._maybe_open_firewall(argparse.Namespace(open_firewall=True), ui, port=18080)
+    assert any(e["level"] == "error" for e in ui.events)
+    assert not any(e["level"] == "ok" for e in ui.events)
 
 
 # ── uvicorn ─────────────────────────────────────────────────────────────────
@@ -443,6 +724,103 @@ def test_handlers_cover_all_commands():
     parser = noesis.build_parser()
     subcommands = {a for action in parser._actions if isinstance(action, argparse._SubParsersAction) for a in action.choices}
     assert subcommands == set(noesis._HANDLERS)
+
+
+# ── install (wiring chiave OpenRouter) ──────────────────────────────────────
+
+
+def _install_args(tmp_path, **over):
+    base = dict(
+        data_dir=str(tmp_path), host=None, port=None, bundle=None,
+        no_engine=False, skip_warm=True, no_service=True, no_browser=True,
+        ci=False, mode="user", open_firewall=False,
+    )
+    base.update(over)
+    return argparse.Namespace(**base)
+
+
+def _patch_install_heavy(monkeypatch):
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    monkeypatch.setattr(noesis, "ensure_uv", lambda ui: "/usr/bin/uv")
+    monkeypatch.setattr(noesis, "ensure_service_venv", lambda uv, ui, offline=None: None)
+    monkeypatch.setattr(noesis, "ensure_engine_venv", lambda uv, ui, offline=None: None)
+    monkeypatch.setattr(noesis, "warm_engine", lambda ui: True)
+    monkeypatch.setattr(noesis, "detect_firewall", lambda: None)
+    monkeypatch.setattr(noesis, "health_check", lambda *a, **k: True)
+    monkeypatch.setattr(noesis, "port_listening", lambda *a, **k: False)
+    monkeypatch.setattr(noesis, "local_ip", lambda: None)
+
+
+def test_cmd_install_calls_openrouter_prompt(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    calls: list[Path] = []
+    monkeypatch.setattr(noesis, "ensure_openrouter_key", lambda data_dir, ui: calls.append(data_dir))
+    _patch_install_heavy(monkeypatch)
+    assert noesis.cmd_install(_install_args(tmp_path), noesis.UI(quiet=True)) == 0
+    assert calls == [tmp_path]
+
+
+def test_cmd_install_ci_skips_openrouter_prompt(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    calls: list[Path] = []
+    monkeypatch.setattr(noesis, "ensure_openrouter_key", lambda data_dir, ui: calls.append(data_dir))
+    _patch_install_heavy(monkeypatch)
+    assert noesis.cmd_install(_install_args(tmp_path, ci=True), noesis.UI(quiet=True)) == 0
+    assert calls == []
+
+
+def test_cmd_install_calls_verify_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    calls: list[Path] = []
+    monkeypatch.setattr(noesis, "ensure_openrouter_key", lambda data_dir, ui: None)
+    monkeypatch.setattr(noesis, "verify_openrouter_key", lambda data_dir, ui: calls.append(data_dir))
+    _patch_install_heavy(monkeypatch)
+    assert noesis.cmd_install(_install_args(tmp_path), noesis.UI(quiet=True)) == 0
+    assert calls == [tmp_path]
+
+
+def test_cmd_install_ci_skips_verify_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    calls: list[Path] = []
+    monkeypatch.setattr(noesis, "ensure_openrouter_key", lambda data_dir, ui: None)
+    monkeypatch.setattr(noesis, "verify_openrouter_key", lambda data_dir, ui: calls.append(data_dir))
+    _patch_install_heavy(monkeypatch)
+    assert noesis.cmd_install(_install_args(tmp_path, ci=True), noesis.UI(quiet=True)) == 0
+    assert calls == []
+
+
+def test_cmd_install_waits_for_health(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(noesis, "ensure_openrouter_key", lambda data_dir, ui: None)
+    monkeypatch.setattr(noesis, "verify_openrouter_key", lambda data_dir, ui: None)
+    _patch_install_heavy(monkeypatch)
+
+    class _FakeService:
+        def __init__(self, *a, **k):
+            pass
+
+        def install(self):
+            pass
+
+    monkeypatch.setattr(noesis, "ServiceController", _FakeService)
+    waited: list[int] = []
+    monkeypatch.setattr(noesis, "wait_for_health", lambda host, port, **k: waited.append(port) or True)
+    ui = noesis.UI(quiet=True)
+    assert noesis.cmd_install(_install_args(tmp_path, no_service=False), ui) == 0
+    assert waited  # attesa health eseguita
+    assert any("raggiungibile" in e["message"] for e in ui.events)
+
+
+def test_cmd_install_no_service_does_not_wait(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(noesis, "ensure_openrouter_key", lambda data_dir, ui: None)
+    monkeypatch.setattr(noesis, "verify_openrouter_key", lambda data_dir, ui: None)
+    _patch_install_heavy(monkeypatch)
+    called: list[int] = []
+    monkeypatch.setattr(noesis, "wait_for_health", lambda host, port, **k: called.append(port) or True)
+    ui = noesis.UI(quiet=True)
+    assert noesis.cmd_install(_install_args(tmp_path, no_service=True), ui) == 0
+    assert called == []  # --no-service: nessuna attesa, solo hint
 
 
 # ── uninstall ───────────────────────────────────────────────────────────────

@@ -68,8 +68,10 @@ cd noesis-pdf-cloner-service
 ```
 
 La console `noesis` crea i venv e il motore, scrive la configurazione, installa
-il servizio (avvio automatico), verifica con `doctor` e stampa gli URL (locale +
-LAN). Guida completa: [`docs/INSTALL.md`](docs/INSTALL.md).
+il servizio (avvio automatico), chiede la chiave OpenRouter (opzionale) e la
+verifica, attende che il servizio risponda sulla porta e stampa gli URL (locale +
+LAN). Per la LAN, `--open-firewall` apre la porta limitandola alla **sottorete
+locale**. Guida completa: [`docs/INSTALL.md`](docs/INSTALL.md).
 
 Cruscotto quotidiano: `./noesis status` · `logs` · `doctor` · `open` ·
 `start`/`stop`/`restart` · `bundle` (offline) · `update` · `uninstall`.
@@ -243,6 +245,13 @@ senza overhead dava $0.00040, ~13× in meno). I parametri sono configurabili
 Le stesse variabili si possono impostare nel file **`<data_dir>/noesis.env`**
 (creato da `./noesis install`): è il posto unico da modificare. Precedenza:
 opzione CLI > variabile della shell > `noesis.env` > default.
+
+All'installazione la console chiede la **chiave OpenRouter** (opzionale, solo
+motore `llm`) con input **nascosto**; `noesis.env` è scritto con permessi `0600`.
+Subito dopo verifica **chiave, credito e modello** (stessi check di
+`/api/v1/health?deep=1`). In modalità non interattiva non chiede nulla: imposta
+`OPENROUTER_API_KEY` in `noesis.env` (o nell'ambiente) e riavvia con
+`./noesis restart`.
 
 | Variabile | Default | Descrizione |
 |---|---|---|

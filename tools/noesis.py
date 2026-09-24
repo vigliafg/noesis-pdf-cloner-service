@@ -23,6 +23,8 @@ variabili d'ambiente che l'applicazione già legge (``Settings.from_env``).
 from __future__ import annotations
 
 import argparse
+import getpass
+import ipaddress
 import json
 import os
 import platform
@@ -57,6 +59,7 @@ UV_INSTALL_SH = "https://astral.sh/uv/install.sh"
 UV_INSTALL_PS1 = "https://astral.sh/uv/install.ps1"
 BABELDOC_CACHE_ENV = ("BABELDOC_CACHE_DIR", "BABELDOC_CACHE")
 STOP_TIMEOUT = 20.0
+UFW_CONF = Path("/etc/ufw/ufw.conf")
 
 # Configurazione scritta di default (stesse chiavi lette da app/config.py).
 DEFAULT_CONFIG: dict[str, str] = {
@@ -264,6 +267,15 @@ class UI:
             return default
         return answer in {"s", "si", "sì", "y", "yes"}
 
+    def prompt_secret(self, question: str) -> str:
+        """Legge un segreto **senza eco** (vuoto se non interattivo)."""
+        if not self.is_interactive():
+            return ""
+        try:
+            return getpass.getpass(question).strip()
+        except (EOFError, KeyboardInterrupt):  # pragma: no cover - TTY
+            return ""
+
     def finish(self) -> None:
         if self.json_mode:
             print(json.dumps({"events": self.events}, ensure_ascii=False, indent=2))
@@ -350,7 +362,8 @@ def render_config(values: dict[str, str]) -> str:
         lines.append(f"{key}={value}")
     lines.append("")
     lines.append("# ── Segreti (solo da qui, mai nel codice) ───────────────────────")
-    lines.append("# OPENROUTER_API_KEY=")
+    if "OPENROUTER_API_KEY" not in values:
+        lines.append("# OPENROUTER_API_KEY=")
     return "\n".join(lines) + "\n"
 
 
@@ -363,7 +376,112 @@ def save_config(data_dir: Path, values: dict[str, str], *, overwrite: bool = Fal
         path.write_text(render_config(merged), encoding="utf-8")
     else:
         path.write_text(render_config(values), encoding="utf-8")
+    # Il file può contenere segreti (OPENROUTER_API_KEY): accesso solo all'utente.
+    try:
+        os.chmod(path, 0o600)
+    except OSError:  # pragma: no cover - filesystem senza chmod
+        pass
     return path
+
+
+def ensure_openrouter_key(data_dir: Path, ui: UI) -> None:
+    """Chiede (una volta) la chiave OpenRouter e la salva in ``noesis.env``.
+
+    Opzionale: serve solo al motore ``llm``. Se è già nell'ambiente o nella
+    config non chiede nulla; in non interattivo lascia un suggerimento.
+    """
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        ui.ok("chiave OpenRouter: presente nell'ambiente")
+        return
+    if load_config(data_dir).get("OPENROUTER_API_KEY", "").strip():
+        ui.ok("chiave OpenRouter: già in noesis.env")
+        return
+    if not ui.is_interactive():
+        ui.info(
+            "chiave OpenRouter assente (opzionale, motore `llm`): aggiungila in "
+            f"{config_path(data_dir)} come OPENROUTER_API_KEY=…"
+        )
+        return
+    ui.section("Chiave OpenRouter (opzionale, per il motore LLM)")
+    ui.info("La trovi su https://openrouter.ai/keys — premi Invio per saltare.")
+    key = ui.prompt_secret("Chiave: ")
+    if not key:
+        ui.info(
+            "nessuna chiave inserita: potrai aggiungerla in "
+            f"{config_path(data_dir)} (OPENROUTER_API_KEY=…) e riavviare con `noesis restart`"
+        )
+        return
+    save_config(data_dir, {"OPENROUTER_API_KEY": key})
+    ui.ok(
+        f"chiave OpenRouter salvata in {config_path(data_dir)} "
+        f"(0600, lunghezza {len(key)})"
+    )
+
+
+def verify_openrouter_key(data_dir: Path, ui: UI) -> bool:
+    """Verifica **chiave e modello** OpenRouter riusando ``app.diagnostics``.
+
+    Esegue nella venv del servizio gli stessi check di ``/api/v1/health?deep=1``
+    e di ``noesis doctor`` (``key.valid``, ``key.credits``, ``llm.model``):
+    nessuna duplicazione. Salta se non c'è chiave, se la venv non è pronta o in
+    ``--dry-run``. Ritorna ``True`` se tutti i check sono ok.
+    """
+    if DRY_RUN:
+        return False
+    key = (
+        os.environ.get("OPENROUTER_API_KEY")
+        or load_config(data_dir).get("OPENROUTER_API_KEY", "")
+    ).strip()
+    if not key:
+        return False
+    venv = venv_python_in(service_venv())
+    if not venv.is_file():
+        return False
+    script = (
+        "import json\n"
+        "from app.config import Settings\n"
+        "from app.diagnostics import build_context, check_key_valid, check_key_credits, check_llm_model\n"
+        "ctx = build_context(Settings.from_env())\n"
+        "checks = [check_key_valid(ctx.key, ctx.base_url),\n"
+        "          check_key_credits(ctx.key, ctx.base_url),\n"
+        "          check_llm_model(ctx.key, ctx.model, ctx.base_url)]\n"
+        "print(json.dumps([{'id': c.id, 'status': c.status, 'code': c.code,\n"
+        "                   'message': c.message, 'data': c.data} for c in checks]))\n"
+    )
+    result = run_command(
+        [str(venv), "-c", script],
+        check=False, capture=True, ui=ui, env=build_env(data_dir), cwd=REPO_ROOT,
+    )
+    lines = [line for line in (result.stdout or "").splitlines() if line.strip()]
+    try:
+        checks = json.loads(lines[-1]) if lines else []
+    except ValueError:
+        checks = []
+    if not checks:
+        ui.warn("verifica chiave/modello non riuscita (diagnostica non disponibile)")
+        return False
+    labels = {
+        "key.valid": "chiave OpenRouter",
+        "key.credits": "credito OpenRouter",
+        "llm.model": "modello LLM",
+    }
+    ok = True
+    for check in checks:
+        label = labels.get(check.get("id"), check.get("id", "check"))
+        status = check.get("status", "warn")
+        detail = check.get("message") or ""
+        if check.get("id") == "key.credits" and status == "ok":
+            remaining = (check.get("data") or {}).get("limit_remaining")
+            if isinstance(remaining, (int, float)):
+                detail = f"residuo {remaining}"
+        if status == "ok":
+            ui.ok(f"{label}: ok" + (f" — {detail}" if detail else ""))
+        elif status == "skip":
+            ui.info(f"{label}: saltato" + (f" — {detail}" if detail else ""))
+        else:
+            ok = False
+            ui.warn(f"{label}: {check.get('code', status)}" + (f" — {detail}" if detail else ""))
+    return ok
 
 
 def resolve_host_port(args: argparse.Namespace, data_dir: Path) -> tuple[str, int]:
@@ -567,6 +685,35 @@ def health_check(host: str, port: int, timeout: float = 2.0) -> bool:
             return 200 <= response.status < 300
     except (urllib.error.URLError, OSError):
         return False
+
+
+def port_listening(host: str, port: int, *, timeout: float = 1.0) -> bool:
+    """True se qualcosa è già in ascolto sulla porta (prova di connessione TCP)."""
+    probe_host = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+    try:
+        with socket.create_connection((probe_host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def warn_if_port_busy(host: str, port: int, ui: UI) -> bool:
+    """Avvisa se la porta è occupata da un processo che **non** è il nostro servizio."""
+    if port_listening(host, port) and not health_check(host, port):
+        ui.warn(f"porta {port} già in ascolto da un altro processo: il servizio potrebbe non avviarsi")
+        return True
+    return False
+
+
+def wait_for_health(host: str, port: int, *, timeout: float = 30.0, interval: float = 1.0) -> bool:
+    """Attende che il server risponda su ``/api/v1/health`` (fino a ``timeout`` secondi)."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if health_check(host, port):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(interval)
 
 
 # ── gestione processo (background) ──────────────────────────────────────────
@@ -943,15 +1090,97 @@ def detect_firewall() -> str | None:
     return None
 
 
-def firewall_open_command(fw: str, port: int) -> list[str] | None:
+def firewall_open_command(fw: str, port: int, subnet: str | None = None) -> list[str] | None:
     if fw == "ufw":
+        if subnet:
+            return ["sudo", "ufw", "allow", "from", subnet, "to", "any", "port", str(port), "proto", "tcp"]
         return ["sudo", "ufw", "allow", f"{port}/tcp"]
     if fw == "firewalld":
+        if subnet:
+            return ["sudo", "firewall-cmd", "--permanent", "--add-rich-rule",
+                    f"rule family=ipv4 source address={subnet} port port={port} protocol=tcp accept"]
         return ["sudo", "firewall-cmd", "--permanent", "--add-port", f"{port}/tcp"]
     if fw == "windows":
         return ["netsh", "advfirewall", "firewall", "add", "rule",
                 f"name=Noesis PDF Cloner {port}", "dir=in", "action=allow",
-                "protocol=TCP", f"localport={port}"]
+                "protocol=TCP", f"localport={port}", "remoteip=localsubnet"]
+    return None
+
+
+def local_subnet() -> str | None:
+    """Sottorete IPv4 dell'interfaccia di default in CIDR (es. ``192.168.1.0/24``)."""
+    ip_bin = shutil.which("ip")
+    if not ip_bin:
+        return None
+    route = run_command([ip_bin, "-4", "route", "show", "default"], check=False, capture=True).stdout or ""
+    tokens = route.split()
+    if "dev" not in tokens:
+        return None
+    dev = tokens[tokens.index("dev") + 1]
+    addr = run_command([ip_bin, "-o", "-4", "addr", "show", "dev", dev], check=False, capture=True).stdout or ""
+    match = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", addr)
+    if not match:
+        return None
+    try:
+        return str(ipaddress.ip_network(f"{match.group(1)}/{match.group(2)}", strict=False))
+    except ValueError:
+        return None
+
+
+def ufw_enabled() -> bool | None:
+    """True/False se ufw è abilitato (da ``/etc/ufw/ufw.conf``); None se ignoto."""
+    try:
+        text = UFW_CONF.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith("ENABLED="):
+            return stripped.split("=", 1)[1].strip().lower() in {"yes", "true", "1"}
+    out = (run_command(["sudo", "-n", "ufw", "status"], check=False, capture=True).stdout or "").lower()
+    if "inactive" in out or "inattiv" in out:
+        return False
+    if "active" in out or "attiv" in out:
+        return True
+    return None
+
+
+def firewall_active(fw: str) -> bool | None:
+    """True/False se il firewall è attivo; None se non determinabile."""
+    if fw == "ufw":
+        return ufw_enabled()
+    if fw == "firewalld":
+        out = (run_command(["firewall-cmd", "--state"], check=False, capture=True).stdout or "").strip().lower()
+        if out == "running":
+            return True
+        if out == "not running":
+            return False
+    return None
+
+
+def firewall_rule_present(fw: str, port: int, subnet: str | None) -> bool | None:
+    """True/False se la regola per ``port`` è presente; None se non verificabile.
+
+    Usa solo token **numerici** (porta e CIDR), così è indipendente dalla lingua
+    dell'output di ``ufw``/``firewall-cmd``.
+    """
+    if fw == "ufw":
+        out = run_command(["sudo", "-n", "ufw", "status"], check=False, capture=True).stdout or ""
+        if not out.strip():
+            return None
+        if str(port) not in out:
+            return False
+        if subnet and subnet not in out:
+            return False
+        return True
+    if fw == "firewalld":
+        out = run_command(
+            ["sudo", "-n", "firewall-cmd", "--permanent", "--list-rich-rules"],
+            check=False, capture=True,
+        ).stdout or ""
+        if not out.strip():
+            return None
+        return str(port) in out and (subnet is None or subnet in out)
     return None
 
 
@@ -1142,6 +1371,8 @@ def cmd_install(args: argparse.Namespace, ui: UI) -> int:
             "HOST": host,
             "PORT": str(port),
         })
+        if not args.ci:
+            ensure_openrouter_key(data_dir, ui)
     uv = ensure_uv(ui)
     if args.bundle:
         install_from_bundle(uv, data_dir, Path(args.bundle), ui)
@@ -1151,11 +1382,15 @@ def cmd_install(args: argparse.Namespace, ui: UI) -> int:
             ensure_engine_venv(uv, ui)
     if not args.no_engine and not args.skip_warm and not args.bundle:
         warm_engine(ui)
+    if not args.ci:
+        verify_openrouter_key(data_dir, ui)
     _maybe_open_firewall(args, ui, port=port)
     if not args.no_service:
+        if not DRY_RUN:
+            warn_if_port_busy(host, port, ui)
         spec = _service_spec(data_dir, host=host, port=port)
         ServiceController(data_dir, ui, system=args.mode == "system", spec=spec).install()
-    _print_summary(data_dir, ui, host=host, port=port)
+    _print_summary(data_dir, ui, host=host, port=port, started=not args.no_service)
     if not args.no_browser and not args.ci and has_display():
         _open_browser(host, port, ui)
     return 0
@@ -1179,27 +1414,68 @@ def _service_spec(data_dir: Path, *, host: str, port: int) -> ServiceSpec:
 def _maybe_open_firewall(args: argparse.Namespace, ui: UI, *, port: int) -> None:
     fw = detect_firewall()
     if fw in {"ufw", "firewalld"}:
-        command = firewall_open_command(fw, port)
-        if args.open_firewall and command:
-            run_command(command, check=False, ui=ui)
-            if fw == "firewalld":
-                run_command(["sudo", "firewall-cmd", "--reload"], check=False, ui=ui)
-            ui.ok(f"porta {port}/tcp aperta ({fw})")
+        subnet = local_subnet()
+        scope = f" (solo sottorete {subnet})" if subnet else ""
+        active = firewall_active(fw)
+        if not args.open_firewall:
+            if active is False:
+                ui.info(f"firewall {fw} inattivo: la porta {port} è già raggiungibile in LAN")
+            else:
+                ui.warn(
+                    f"firewall {fw} attivo: per la LAN apri la porta con "
+                    f"`noesis install --open-firewall`{scope}"
+                )
+            return
+        if active is False:
+            ui.info(
+                f"firewall {fw} inattivo: nessuna regola necessaria "
+                f"(la porta {port} è già raggiungibile in LAN)"
+            )
+            return
+        command = firewall_open_command(fw, port, subnet)
+        if not command:
+            return
+        result = run_command(command, check=False, capture=True, ui=ui)
+        if DRY_RUN:
+            return
+        if result.returncode != 0:
+            ui.error(
+                f"apertura porta {port}/tcp non riuscita ({fw}): "
+                f"{(result.stdout or '').strip()[:200]}"
+            )
+            ui.info(f"comando manuale: {' '.join(command)}")
+            return
+        if fw == "firewalld":
+            run_command(["sudo", "firewall-cmd", "--reload"], check=False, ui=ui)
+        present = firewall_rule_present(fw, port, subnet)
+        if present is False:
+            ui.warn(
+                f"porta {port}/tcp: regola non confermata in {fw}; "
+                f"verifica con `sudo {fw} status`"
+            )
         else:
-            ui.warn(f"firewall {fw} rilevato: per la LAN apri la porta con `noesis install --open-firewall`")
+            ui.ok(f"porta {port}/tcp aperta{scope} ({fw})")
     elif fw == "windows":
         ui.warn("firewall Windows: per la LAN esegui `noesis install --open-firewall` (da terminale admin)")
 
 
-def _print_summary(data_dir: Path, ui: UI, *, host: str, port: int) -> None:
+def _print_summary(data_dir: Path, ui: UI, *, host: str, port: int, started: bool = True) -> None:
     ui.section("Riepilogo")
     ui.info(f"cartella dati: {data_dir}")
     ui.info(f"config: {config_path(data_dir)}")
     ui.info(f"log: {service_log(data_dir)}")
     for url in server_urls(host, port):
-        ui.ok(f"URL: {url}")
-    if not health_check(host, port):
+        label = "locale" if "127.0.0.1" in url else "LAN"
+        ui.ok(f"URL ({label}): {url}")
+    if DRY_RUN:
+        return
+    if not started:
         ui.info("avvia con `noesis start` (o `noesis service status`)")
+        return
+    if wait_for_health(host, port, timeout=30.0):
+        ui.ok(f"porta {port} raggiungibile (health ok)")
+    else:
+        ui.warn(f"porta {port} non risponde dopo 30 s: controlla `./noesis logs`")
 
 
 def cmd_start(args: argparse.Namespace, ui: UI) -> int:
@@ -1209,6 +1485,7 @@ def cmd_start(args: argparse.Namespace, ui: UI) -> int:
     if not venv_python_in(service_venv()).is_file():
         ui.error("venv assente: esegui prima `noesis install`")
         return 2
+    warn_if_port_busy(host, port, ui)
     start_background(data_dir, ui, host=host, port=port)
     return 0
 
