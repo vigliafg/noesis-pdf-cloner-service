@@ -1,0 +1,128 @@
+name: docker
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Metadati immagine
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # QEMU serve solo per emulare arm64 nel build multi-arch (non su PR).
+      - name: QEMU
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Su PR: solo amd64, caricata nel daemon locale per lo smoke test.
+      - name: Build (PR, amd64)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: noesis-pdf-cloner-service:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Su push/tag/dispatch: multi-arch e pubblicazione su GHCR.
+      - name: Build & push (amd64 + arm64)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            IMG="noesis-pdf-cloner-service:ci"
+          else
+            IMG="${IMAGE}:sha-${GITHUB_SHA::7}"
+          fi
+          echo "Test immagine: $IMG"
+
+          docker run -d --name noesis-smoke -p 18080:18080 \
+            -v noesis-smoke-data:/data "$IMG"
+
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18080/api/v1/health > /tmp/health.json 2>/dev/null; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::il servizio non risponde su /api/v1/health"
+            docker logs noesis-smoke || true
+            exit 1
+          fi
+
+          cat /tmp/health.json
+          python3 - <<'PY'
+          import json
+          body = json.load(open("/tmp/health.json"))
+          assert body["status"] in {"ok", "degraded"}, body
+          assert body["engine_available"] is True, body
+          print("health OK:", body["status"], "engine_available=", body["engine_available"])
+          PY
+
+          echo "--- /api/v1/system ---"
+          curl -fsS http://127.0.0.1:18080/api/v1/system
+          curl -fsS http://127.0.0.1:18080/api/v1/meta > /dev/null
+
+          echo "--- asset motore presenti nell'immagine ---"
+          docker exec noesis-smoke \
+            test -f /home/noesis/.cache/babeldoc/models/doclayout_yolo_docstructbench_imgsz1024.onnx
+          docker exec noesis-smoke /app/.venv2/bin/pdf2zh_next --version
+
+          echo "--- log del container ---"
+          docker logs noesis-smoke | tail -20
+          docker rm -f noesis-smoke

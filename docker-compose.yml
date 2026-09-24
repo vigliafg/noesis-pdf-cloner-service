@@ -1,0 +1,33 @@
+# Noesis PDF Cloner Service — docker compose.
+#
+#   docker compose up -d      →  http://localhost:18080
+#
+# La chiave OpenRouter serve solo al motore `llm` (google/bing sono gratuiti).
+services:
+  noesis:
+    image: ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+    container_name: noesis
+    ports:
+      - "18080:18080"
+    volumes:
+      - noesis-data:/data
+    environment:
+      HOST: 0.0.0.0
+      PORT: "18080"
+      DATA_DIR: /data
+      # Chiave per il motore LLM (opzionale).
+      # OPENROUTER_API_KEY: "sk-or-..."
+      # Limiti espliciti (consigliati): l'autosize legge i limiti del container,
+      # ma dichiararli rende il comportamento prevedibile.
+      # WORKERS: "2"
+      # PAGE_CONCURRENCY: "2"
+      # MAX_ENGINE_PROCS: "2"
+      # Per più worker: 1 container con ROLE=api + N con ROLE=worker e WORKER_COUNT=N
+      # (stesso volume /data).
+    restart: unless-stopped
+    # Limiti di risorse (docker compose v2 li applica al container).
+    # cpus: 2
+    # mem_limit: 4g
+
+volumes:
+  noesis-data:

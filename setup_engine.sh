@@ -12,7 +12,13 @@ fi
 if [ ! -d .venv2 ]; then
   "$UV" venv --python python3.12 .venv2
 fi
-"$UV" pip install --python .venv2/bin/python -q -r requirements-engine.txt
+# Lockfile se presente (versioni riproducibili). Il lock è risolto per Linux:
+# su macOS si usa il manifest per non vincolare a versioni pensate per Linux.
+REQ="requirements-engine.txt"
+if [ "$(uname -s)" = "Linux" ] && [ -f requirements-engine.lock ]; then
+  REQ="requirements-engine.lock"
+fi
+"$UV" pip install --python .venv2/bin/python -q -r "$REQ"
 
 echo "Motore installato in .venv2"
 echo "Pre-warm dei modelli (best effort, la prima pagina può richiedere più tempo)…"

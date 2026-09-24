@@ -1,0 +1,30 @@
+Noesis PDF Cloner Service
+Copyright (C) 2026 vigliafg
+
+Questo programma è software libero: puoi ridistribuirlo e/o modificarlo secondo
+i termini della GNU Affero General Public License (AGPL) come pubblicata dalla
+Free Software Foundation, versione 3 o (a tua scelta) qualsiasi versione
+successiva. Vedi il file LICENSE.
+
+Il programma è distribuito nella speranza che sia utile, ma SENZA ALCUNA
+GARANZIA. Vedi la AGPL per i dettagli.
+
+── Componenti di terze parti ────────────────────────────────────────────────
+
+Il servizio e l'immagine Docker incorporano, come dipendenze separate, software
+di terze parti con licenze proprie. In particolare, componenti sotto AGPL-3.0:
+
+- pdf2zh_next (PDFMathTranslate-next) — AGPL-3.0
+  https://github.com/PDFMathTranslate-next/PDFMathTranslate-next
+- BabelDOC — AGPL-3.0
+  https://github.com/funstory-ai/BabelDOC
+- PyMuPDF — AGPL-3.0 (o licenza commerciale Artifex)
+  https://github.com/pymupdf/PyMuPDF
+
+Le altre dipendenze sono elencate in requirements.txt e
+requirements-engine.lock, con le rispettive licenze (MIT, BSD, Apache-2.0 ecc.).
+
+Obblighi AGPL: chi distribuisce l'immagine (es. `docker push`) deve rendere
+disponibile il codice sorgente corrispondente dei componenti AGPL. I sorgenti
+sono pubblici ai link sopra; il codice di questo progetto è pubblicato in
+https://github.com/vigliafg/noesis-pdf-cloner-service

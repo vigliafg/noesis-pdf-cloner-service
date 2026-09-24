@@ -77,6 +77,19 @@ LAN). A fine installazione stampa il **report completo di salute/preflight** e i
 Cruscotto quotidiano: `./noesis status` · `logs` · `doctor` · `open` ·
 `start`/`stop`/`restart` · `bundle` (offline) · `update` · `uninstall`.
 
+### Docker (immagine pronta)
+
+Immagine **multi-arch** (`linux/amd64`, `linux/arm64`) con tutto incluso: i due
+venv, il motore `pdf2zh_next` e gli **asset BabelDOC pre-scaricati**.
+
+```bash
+docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
+  ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+# → http://localhost:18080   (google/bing gratis; llm con -e OPENROUTER_API_KEY=...)
+```
+
+Compose, scaling API+worker, limiti risorse e build: [`docs/DOCKER.md`](docs/DOCKER.md).
+
 ### Disinstallazione
 
 ```bash

@@ -1,0 +1,24 @@
+# Contesto di build minimo: niente venv, dati runtime, PDF o cache locali.
+.git
+.github
+.venv
+.venv2
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+data
+cache
+logs
+out
+pdfs
+*.pdf
+build
+dist
+*.egg-info
+docs
+tests
+ARCHITETTURA.md
+HANDOFF.md

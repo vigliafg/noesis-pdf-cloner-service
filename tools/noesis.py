@@ -54,6 +54,7 @@ DEFAULT_HOST = "0.0.0.0"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REQUIREMENTS = "requirements.txt"
 REQUIREMENTS_ENGINE = "requirements-engine.txt"
+REQUIREMENTS_ENGINE_LOCK = "requirements-engine.lock"
 PYTHON_VERSION = "3.12"
 UV_INSTALL_SH = "https://astral.sh/uv/install.sh"
 UV_INSTALL_PS1 = "https://astral.sh/uv/install.ps1"
@@ -692,7 +693,18 @@ def ensure_engine_venv(uv: str, ui: UI, *, offline: Path | None = None) -> None:
     venv = engine_venv()
     ensure_venv(uv, venv, ui)
     ui.info("installo il motore pdf2zh_next (può richiedere qualche minuto)…")
-    install_requirements(uv, venv, [REQUIREMENTS_ENGINE], ui, offline=offline)
+    install_requirements(uv, venv, [engine_requirement()], ui, offline=offline)
+
+
+def engine_requirement() -> str:
+    """Manifest del motore: il lockfile (solo Linux) se presente, altrimenti il txt.
+
+    Il lock è risolto per Linux (dove gira anche il container); su macOS/Windows
+    si usa il manifest per non vincolare a versioni pensate per Linux.
+    """
+    if sys.platform.startswith("linux") and (REPO_ROOT / REQUIREMENTS_ENGINE_LOCK).is_file():
+        return REQUIREMENTS_ENGINE_LOCK
+    return REQUIREMENTS_ENGINE
 
 
 def warm_engine(ui: UI) -> bool:
@@ -1384,7 +1396,7 @@ def download_wheels(uv: str, dest: Path, ui: UI) -> None:
         ensure_venv(uv, helper, ui)
         run_command([uv, "pip", "install", "--python", str(venv_python_in(helper)), "-q", "pip"], ui=ui)
         cmd = [str(venv_python_in(helper)), "-m", "pip", "download", "-d", str(dest)]
-        for name in (REQUIREMENTS, REQUIREMENTS_ENGINE):
+        for name in (REQUIREMENTS, engine_requirement()):
             if (REPO_ROOT / name).is_file():
                 cmd += ["-r", str(REPO_ROOT / name)]
         run_command(cmd, ui=ui)

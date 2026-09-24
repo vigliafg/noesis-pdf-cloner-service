@@ -174,7 +174,7 @@ vedono **numeri 1-based**; la conversione avviene in un solo punto.
   servizio; l'isolamento dei processi dà anche **robustezza** (un crash del
   motore non abbatte il servizio) e consente il **kill** per il cancel.
 - **Alternative**: import diretto delle librerie (conflitti di dipendenze,
-  nessun isolamento); container separato (rimandato).
+  nessun isolamento); container separato (ora disponibile, ADR-017).
 - **Conseguenze**: overhead di avvio per pagina; versionamento fissato
   (`pdf2zh_next==2.9.0`).
 
@@ -237,9 +237,13 @@ vedono **numeri 1-based**; la conversione avviene in un solo punto.
 
 ### ADR-009 — Autosizing e guardie
 - **Decisione**: `resources.py` rileva CPU/RAM/disco e calcola
-  `workers`/`page_concurrency`/`max_engine_procs`; `ROLE=worker WORKER_COUNT=N`
-  divide le risorse; soglie disco/RAM bloccano nuovi job con 503.
-- **Perché**: il servizio **si adatta** al VPS (anche dopo resize) ed evita OOM.
+  `workers`/`page_concurrency`/`max_engine_procs`; in **container** valgono i
+  **limiti dei cgroup** (v2, fallback v1) invece dei valori dell'host letti da
+  `/proc`; `ROLE=worker WORKER_COUNT=N` divide le risorse; `AUTOSIZE=false`
+  disattiva la deduzione (valori minimi a 1); soglie disco/RAM bloccano nuovi
+  job con 503.
+- **Perché**: il servizio **si adatta** al VPS (anche dopo resize) e al
+  container (`--cpus`/`--memory`) ed evita OOM.
 - **Conseguenze**: le env esplicite hanno sempre la precedenza; i valori
   effettivi sono esposti da `GET /api/v1/system`.
 
@@ -287,6 +291,21 @@ vedono **numeri 1-based**; la conversione avviene in un solo punto.
 - **Decisione**: Jinja2 + JS vanilla (+ CSS), PDF.js opzionale.
 - **Perché**: un solo linguaggio nel repo, nessuna dipendenza Node, deploy
   banale. L'API resta il contratto stabile per eventuali SPA future.
+
+### ADR-017 — Distribuzione come immagine Docker multi-arch
+- **Decisione**: immagine **linux/amd64 + linux/arm64** pubblicata su **GHCR**
+  (`ghcr.io/vigliafg/noesis-pdf-cloner-service`) dalla CI; contiene entrambi i
+  venv e gli **asset BabelDOC pre-scaricati** (`babeldoc --warmup`); build e push
+  con `docker/build-push-action` (provenance + SBOM).
+- **Perché**: distribuzione "out-of-the-box" (`docker run` senza installazioni),
+  indipendente dalla macchina; la CI non consuma spazio locale; multi-arch copre
+  server x86 e ARM (Docker Desktop su Windows/macOS usa l'immagine Linux).
+- **Alternative**: asset scaricati al primo avvio (prima traduzione lenta);
+  immagini per-arch senza manifest list.
+- **Conseguenze**: immagine grande (~1,5–1,8 GB); gli asset AGPL dei componenti
+  (pdf2zh_next, BabelDOC, PyMuPDF) sono incorporati → obblighi di attribuzione e
+  offerta del sorgente (`LICENSE`/`NOTICE`); la **traduzione** richiede comunque
+  rete in uscita.
 
 ---
 
@@ -464,7 +483,8 @@ cent/pagina); le pagine in cache non si pagano.
 ## 15. Roadmap
 
 **Fase A — prodotto (breve)**
-1. Spike **legale/licenze** + benchmark costi per motore.
+1. Spike **legale/licenze** + benchmark costi per motore. *(Licenze: `LICENSE`
+   AGPL-3.0 + `NOTICE` aggiunti con l'immagine Docker, ADR-017.)*
 2. Potatura/quota **cache** e cleanup documenti nel janitor.
 3. Allineare motore e versioni; hardening operativo (status page, alerting).
 

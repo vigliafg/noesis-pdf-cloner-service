@@ -1024,6 +1024,17 @@ def test_cmd_install_ci_skips_report(tmp_path, monkeypatch):
     assert calls == [1]
 
 
+def test_engine_requirement_prefers_lock(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "REPO_ROOT", tmp_path)
+    assert noesis.engine_requirement() == "requirements-engine.txt"
+    (tmp_path / "requirements-engine.lock").write_text("", encoding="utf-8")
+    # Il lock vale solo su Linux (è risolto per Linux).
+    if sys.platform.startswith("linux"):
+        assert noesis.engine_requirement() == "requirements-engine.lock"
+    else:
+        assert noesis.engine_requirement() == "requirements-engine.txt"
+
+
 # ── logs ────────────────────────────────────────────────────────────────────
 
 
