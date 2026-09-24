@@ -68,6 +68,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: .\noesis.cmd install --no-service --no-engine --skip-warm --no-browser --data-dir "$env:RUNNER_TEMP/noesis-report"
+      - name: Bootstrap (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:NOESIS_DIR = "$env:RUNNER_TEMP\noesis-boot"
+          .\bootstrap.ps1 --ci --no-service --no-engine --skip-warm --data-dir "$env:RUNNER_TEMP\noesis-boot-data"
+          if (-not (Test-Path "$env:NOESIS_DIR\.git")) { throw "bootstrap non ha clonato il repo" }
+          Write-Host "bootstrap OK"
 
   # End-to-end su Windows: servizio (Task Scheduler), firewall scoped, log.
   # I runner windows-latest hanno privilegi di amministratore.

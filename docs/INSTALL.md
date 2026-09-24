@@ -6,7 +6,7 @@ motore, scrive la configurazione, installa il servizio e diagnostica i problemi.
 
 ```
 install.sh / install.ps1        gusci: delegano alla console
-bootstrap.sh                    opzionale: clona il repo e installa
+bootstrap.sh / bootstrap.ps1    opzionale: clona il repo e installa
         │
         ▼
 tools/noesis.py                 unica fonte di verità
@@ -32,10 +32,16 @@ cd noesis-pdf-cloner-service
 ./install.sh
 ```
 
-Con il **bootstrap** (repo pubblico), in un colpo solo:
+Con il **bootstrap** (repo pubblico), in un colpo solo.
 
+Linux / macOS / WSL:
 ```bash
 curl -LsSf https://raw.githubusercontent.com/vigliafg/noesis-pdf-cloner-service/main/bootstrap.sh | bash
+```
+
+Windows (PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/vigliafg/noesis-pdf-cloner-service/main/bootstrap.ps1 | iex
 ```
 
 A fine installazione la console stampa gli URL (locale + LAN) e, se c'è una
@@ -147,6 +153,9 @@ Sul nativo valgono le stesse funzioni del resto dell'installer:
   `.\noesis.cmd logs` funziona come su Linux.
 - **Report e link**: a fine installazione stampa il report di salute/preflight e
   gli URL locale/LAN (cliccabili dove il terminale supporta gli hyperlink).
+- **Bootstrap**: `irm .../bootstrap.ps1 | iex` clona il repo e installa in un colpo
+  solo (variabili `NOESIS_DIR`, `NOESIS_REPO_URL`; gli argomenti sono inoltrati a
+  `install.ps1`).
 
 ## Bundle offline (installazione su più macchine)
 
