@@ -276,6 +276,12 @@ class UI:
         except (EOFError, KeyboardInterrupt):  # pragma: no cover - TTY
             return ""
 
+    def link(self, url: str) -> str:
+        """Rende ``url`` cliccabile (OSC 8) se il terminale lo supporta."""
+        if not self.color:
+            return url
+        return f"\033]8;;{url}\033\\{url}\033]8;;\033\\"
+
     def finish(self) -> None:
         if self.json_mode:
             print(json.dumps({"events": self.events}, ensure_ascii=False, indent=2))
@@ -416,6 +422,58 @@ def ensure_openrouter_key(data_dir: Path, ui: UI) -> None:
         f"chiave OpenRouter salvata in {config_path(data_dir)} "
         f"(0600, lunghezza {len(key)})"
     )
+
+
+def print_health_report(data_dir: Path, ui: UI) -> None:
+    """Stampa il **report completo** di salute/preflight riusando ``app.diagnostics``.
+
+    Esegue nella venv ``run_all`` (ambiente, uv, motore, rete, chiave, modello,
+    catena gratuita): gli stessi check di ``noesis-cloner --doctor`` e di
+    ``GET /api/v1/health?deep=1``. Salta se la venv non è pronta o in dry-run.
+    """
+    if DRY_RUN:
+        return
+    venv = venv_python_in(service_venv())
+    if not venv.is_file():
+        return
+    script = (
+        "import json\n"
+        "from app.config import Settings\n"
+        "from app.diagnostics import build_context, run_all, health_status\n"
+        "results = run_all(build_context(Settings.from_env()))\n"
+        "print(json.dumps({'status': health_status(results), 'checks': [\n"
+        "    {'id': c.id, 'status': c.status, 'code': c.code,\n"
+        "     'message': c.message, 'fix': c.fix, 'data': c.data} for c in results]}))\n"
+    )
+    result = run_command(
+        [str(venv), "-c", script],
+        check=False, capture=True, ui=ui, env=build_env(data_dir), cwd=REPO_ROOT,
+    )
+    lines = [line for line in (result.stdout or "").splitlines() if line.strip()]
+    try:
+        payload = json.loads(lines[-1]) if lines else {}
+    except ValueError:
+        payload = {}
+    checks = payload.get("checks") or []
+    if not checks:
+        ui.warn("report di salute non disponibile (diagnostica non eseguibile)")
+        return
+    levels = {"ok": "ok", "warn": "warn", "fail": "error", "skip": "info"}
+    ui.section("Salute e preflight")
+    for check in checks:
+        extra = ""
+        data = check.get("data") or {}
+        if check.get("id") == "engine.bin" and check.get("status") == "ok":
+            extra = f" {data.get('path', '')}"
+        elif check.get("id") == "key.present" and data.get("masked"):
+            extra = f" {data['masked']} [{data.get('source', '')}]"
+        elif check.get("message"):
+            extra = f" {check['message']}"
+        if check.get("fix"):
+            extra += f" [fix: {check['fix']}]"
+        ui.emit(levels.get(check.get("status", "info"), "info"),
+                f"{check.get('id', '?')}{extra}")
+    ui.info(f"→ esito: {payload.get('status', '?')}")
 
 
 def verify_openrouter_key(data_dir: Path, ui: UI) -> bool:
@@ -1464,9 +1522,13 @@ def _print_summary(data_dir: Path, ui: UI, *, host: str, port: int, started: boo
     ui.info(f"cartella dati: {data_dir}")
     ui.info(f"config: {config_path(data_dir)}")
     ui.info(f"log: {service_log(data_dir)}")
+
+    print_health_report(data_dir, ui)
+
+    ui.section("Avvia")
     for url in server_urls(host, port):
         label = "locale" if "127.0.0.1" in url else "LAN"
-        ui.ok(f"URL ({label}): {url}")
+        ui.ok(f"{label}: {ui.link(url)}")
     if DRY_RUN:
         return
     if not started:
@@ -1476,6 +1538,7 @@ def _print_summary(data_dir: Path, ui: UI, *, host: str, port: int, started: boo
         ui.ok(f"porta {port} raggiungibile (health ok)")
     else:
         ui.warn(f"porta {port} non risponde dopo 30 s: controlla `./noesis logs`")
+    ui.info("gestione: ./noesis status · logs · restart · open")
 
 
 def cmd_start(args: argparse.Namespace, ui: UI) -> int:

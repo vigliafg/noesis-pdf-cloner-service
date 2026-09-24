@@ -70,8 +70,9 @@ cd noesis-pdf-cloner-service
 La console `noesis` crea i venv e il motore, scrive la configurazione, installa
 il servizio (avvio automatico), chiede la chiave OpenRouter (opzionale) e la
 verifica, attende che il servizio risponda sulla porta e stampa gli URL (locale +
-LAN). Per la LAN, `--open-firewall` apre la porta limitandola alla **sottorete
-locale**. Guida completa: [`docs/INSTALL.md`](docs/INSTALL.md).
+LAN). A fine installazione stampa il **report completo di salute/preflight** e i
+**link cliccabili**. Per la LAN, `--open-firewall` apre la porta limitandola alla
+**sottorete locale**. Guida completa: [`docs/INSTALL.md`](docs/INSTALL.md).
 
 Cruscotto quotidiano: `./noesis status` · `logs` · `doctor` · `open` ·
 `start`/`stop`/`restart` · `bundle` (offline) · `update` · `uninstall`.

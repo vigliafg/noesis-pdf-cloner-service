@@ -187,6 +187,70 @@ def test_verify_openrouter_key_garbage_output(tmp_path, monkeypatch):
     assert noesis.verify_openrouter_key(tmp_path, noesis.UI(quiet=True)) is False
 
 
+# ── report di salute + link ─────────────────────────────────────────────────
+
+
+def test_ui_link_plain_without_color():
+    assert noesis.UI(color=False).link("http://x:1/") == "http://x:1/"
+
+
+def test_ui_link_osc8_with_color():
+    out = noesis.UI(color=True).link("http://x:1/")
+    assert out == "\033]8;;http://x:1/\033\\http://x:1/\033]8;;\033\\"
+
+
+def test_print_health_report_renders_checks(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    monkeypatch.setattr(noesis, "service_venv", lambda: _fake_venv(tmp_path))
+    payload = json.dumps({
+        "status": "ok",
+        "checks": [
+            {"id": "env.data", "status": "ok", "code": "ok", "message": "", "fix": "", "data": {}},
+            {"id": "engine.bin", "status": "ok", "code": "ok", "message": "", "fix": "",
+             "data": {"path": "/r/.venv2/bin/pdf2zh_next"}},
+            {"id": "key.present", "status": "warn", "code": "key_missing", "message": "",
+             "fix": "enter_key", "data": {}},
+        ],
+    })
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: _cp(0, payload))
+    ui = noesis.UI(quiet=True)
+    noesis.print_health_report(tmp_path, ui)
+    messages = " | ".join(e["message"] for e in ui.events)
+    assert "env.data" in messages
+    assert "pdf2zh_next" in messages
+    assert "esito: ok" in messages
+    assert any(e["level"] == "warn" and "key.present" in e["message"] for e in ui.events)
+
+
+def test_print_health_report_skips_without_venv(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    monkeypatch.setattr(noesis, "service_venv", lambda: tmp_path / "missing")
+    called: list[int] = []
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: called.append(1))
+    noesis.print_health_report(tmp_path, noesis.UI(quiet=True))
+    assert called == []
+
+
+def test_print_health_report_dry_run_noop(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "DRY_RUN", True)
+    called: list[int] = []
+    monkeypatch.setattr(noesis, "run_command", lambda *a, **k: called.append(1))
+    noesis.print_health_report(tmp_path, noesis.UI(quiet=True))
+    assert called == []
+
+
+def test_print_summary_shows_local_and_lan_links(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "DRY_RUN", False)
+    monkeypatch.setattr(noesis, "print_health_report", lambda data_dir, ui: None)
+    monkeypatch.setattr(noesis, "wait_for_health", lambda host, port, **k: True)
+    monkeypatch.setattr(noesis, "local_ip", lambda: "10.0.0.5")
+    ui = noesis.UI(quiet=True, color=False)
+    noesis._print_summary(tmp_path, ui, host="0.0.0.0", port=18080, started=True)
+    messages = " | ".join(e["message"] for e in ui.events)
+    assert "locale: http://127.0.0.1:18080" in messages
+    assert "LAN: http://10.0.0.5:18080" in messages
+
+
 # ── piattaforma / percorsi ──────────────────────────────────────────────────
 
 
@@ -749,6 +813,7 @@ def _patch_install_heavy(monkeypatch):
     monkeypatch.setattr(noesis, "health_check", lambda *a, **k: True)
     monkeypatch.setattr(noesis, "port_listening", lambda *a, **k: False)
     monkeypatch.setattr(noesis, "local_ip", lambda: None)
+    monkeypatch.setattr(noesis, "print_health_report", lambda data_dir, ui: None)
 
 
 def test_cmd_install_calls_openrouter_prompt(tmp_path, monkeypatch):

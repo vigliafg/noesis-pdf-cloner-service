@@ -48,10 +48,11 @@ Durante l'installazione, se la chiave non è già presente, la console chiede la
 `noesis doctor` / `GET /api/v1/health?deep=1`). In modalità non interattiva
 (`--ci`, `curl | bash`) non viene chiesto nulla e resta solo un promemoria.
 
-A fine installazione la console attende che il servizio risponda (fino a **30 s**)
-e conferma `porta 18080 raggiungibile`; se la porta è **già occupata** da un altro
-processo lo segnala **prima** di avviare. Il riepilogo distingue l'URL **locale**
-da quello **LAN**.
+A fine installazione la console stampa il **report completo di salute/preflight**
+(gli stessi check di `noesis-cloner --doctor` e di `GET /api/v1/health?deep=1`), i
+**link cliccabili** locale/LAN e attende che il servizio risponda (fino a **30 s**),
+confermando `porta 18080 raggiungibile`; se la porta è **già occupata** da un altro
+processo lo segnala **prima** di avviare.
 
 ## Comandi del cruscotto
 
