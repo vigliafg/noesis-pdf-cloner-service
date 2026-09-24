@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -106,6 +107,7 @@ def test_engine_missing(tmp_path):
     assert r.code == "engine_missing" and r.fix == "install_engine"
 
 
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="script /bin/sh non eseguibili su Windows")
 def test_engine_present_and_running(tmp_path):
     fake = _exec(tmp_path / "pdf2zh_next", "#!/bin/sh\necho usage\n")
     assert diag.check_engine_bin(fake).status == diag.Status.OK
@@ -118,6 +120,7 @@ def test_engine_broken(tmp_path):
     assert r.status == diag.Status.WARN and r.code == "engine_not_runnable"
 
 
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="script /bin/sh non eseguibili su Windows")
 def test_uv_ok_and_missing(tmp_path):
     fake = _exec(tmp_path / "uv", "#!/bin/sh\necho 'uv 0.12.17'\n")
     assert diag.check_uv(fake).status == diag.Status.OK
@@ -206,6 +209,7 @@ def test_build_context_without_key_skips_llm(tmp_path, monkeypatch):
     assert ctx.want_llm_checks is False
 
 
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="script /bin/sh non eseguibili su Windows")
 def test_run_all_and_health_status(tmp_path, openrouter):
     engine = _exec(tmp_path / "pdf2zh_next", "#!/bin/sh\necho usage\n")
     ctx = diag.DiagnosticsContext(

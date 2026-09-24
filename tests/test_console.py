@@ -303,6 +303,7 @@ def test_invoking_user_prefers_sudo(monkeypatch):
     assert noesis.invoking_user() == "bob"
 
 
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="pwd assente su Windows")
 def test_invoking_home_resolves_sudo_user(monkeypatch):
     import pwd
     import types
@@ -324,6 +325,7 @@ def test_invoking_home_ignores_sudo_root(monkeypatch):
     assert noesis.invoking_home() == Path("/home/fallback")
 
 
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="pwd assente su Windows")
 def test_default_data_dir_uses_sudo_home(monkeypatch):
     import pwd
     import types
