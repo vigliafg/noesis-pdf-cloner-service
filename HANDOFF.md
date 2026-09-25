@@ -174,7 +174,10 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
 3. **Procedura takedown / DSA**: pagina + contatto + runbook di rimozione
    (notice-and-action).
 4. **Revisione legale** dei testi (AGPL §7, GDPR, DSA, consumer).
-5. **Abilitare GitHub Pages** (Settings → Pages → Source: **GitHub Actions**).
+5. ~~**Abilitare GitHub Pages**~~ **FATTO (25/09/2026)**: Pages abilitato
+   (Source: GitHub Actions). Guida live su
+   <https://vigliafg.github.io/noesis-pdf-cloner-service/> (IT/EN + Note legali).
+   Pubblicata dal workflow `pages.yml` a ogni push su `main`.
 6. ~~**Riconciliare il modello "gratuito + BYOK"**~~ **FATTO (25/09/2026)**: il
    **codice commerciale resta** (seam, prezzi, pagamenti), ma i **default sono
    gratuiti**: `COST_CENTS_PER_PAGE_*` = `0` (anche nel file d'esempio), niente
@@ -203,6 +206,17 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
     (AGPL-3.0 vs Apache-2.0): chiarire o sostituire.
 16. **Note di copyright per-font** accanto al testo OFL (completezza).
 17. **Verifica build Docker** con i digest pinnati (CI al prossimo push).
+
+### Note CI (25/09/2026)
+
+- **Pages online**: <https://vigliafg.github.io/noesis-pdf-cloner-service/> (workflow `pages` ✅).
+- **tests** ✅ (dopo un *rerun*: il job `windows-service` era fallito nel cleanup
+  dell'action `astral-sh/setup-uv@v5` su Windows — **flaky**, non dipende dal
+  nostro codice; `v5` è molto vecchia, l'ultima è v10).
+- **security** ✅ (pip-audit).
+- **Dependabot** ha aperto 5 PR per aggiornare le Actions (checkout, deploy-pages,
+  upload-pages-artifact, setup-qemu, setup-buildx). Da valutare/mergiare.
+- **docker** (build multi-arch + push GHCR) in corso al primo push.
 
 ### Trasparenza / documenti
 
