@@ -55,7 +55,7 @@ jobs:
       # Su PR: solo amd64, caricata nel daemon locale per lo smoke test.
       - name: Build (PR, amd64)
         if: github.event_name == 'pull_request'
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64
@@ -67,7 +67,7 @@ jobs:
       # Su push/tag/dispatch: multi-arch e pubblicazione su GHCR.
       - name: Build & push (amd64 + arm64)
         if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
