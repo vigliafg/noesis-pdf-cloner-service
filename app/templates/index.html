@@ -10,6 +10,7 @@
   <header class="topbar">
     <div class="brand">🧬 Noesis PDF Cloner <span class="tag">service</span></div>
     <nav class="topnav" aria-label="Aiuto e termini">
+      {% if settings_local %}<a class="btn ghost" href="/settings" title="Configurazione del server">⚙ Impostazioni</a>{% endif %}
       <a class="btn ghost" href="/terms">Termini d'uso</a>
       <a class="btn ghost" href="{{ help_url }}" target="_blank" rel="noopener">Guida</a>
     </nav>

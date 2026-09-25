@@ -31,6 +31,7 @@
       <a href="#download">Download</a>
       <div class="group-label">Piattaforme</div>
       <a href="#install">Installazione</a>
+      <a href="#config">Configurazione</a>
       <a href="#api">API e CLI</a>
       <a href="#uninstall">Disinstallazione</a>
       <div class="group-label">Legalità</div>
@@ -229,6 +230,20 @@ cd noesis-pdf-cloner-service
 ./install.sh</pre>
       <p>Guida completa all'installazione (Windows, offline, API+worker):
       <a href="https://github.com/vigliafg/noesis-pdf-cloner-service/blob/main/docs/INSTALL.md">docs/INSTALL.md</a>.</p>
+
+      <h2 id="config">Configurazione</h2>
+      <p>Il modo più semplice è la <strong>pagina Impostazioni</strong>, aperta dal
+      computer che ospita il servizio:</p>
+      <pre class="ascii">http://127.0.0.1:18080/settings</pre>
+      <p>Trovi limiti, prestazioni, pulizia, motore, la <strong>chiave
+      OpenRouter</strong> e le opzioni legali. Modifica e premi
+      <strong>Salva</strong>, poi <strong>riavvia</strong>:
+      <code>./noesis restart</code> (in Docker: <code>docker compose up -d</code>).</p>
+      <p>La pagina è <strong>privata</strong>: risponde solo dal computer locale
+      (o da quello che ospita Docker). In alternativa, da console:
+      <code>./noesis config --show</code>,
+      <code>./noesis config --set CHIAVE=VALORE</code>,
+      <code>./noesis config --list</code>.</p>
 
       <h2 id="api">API e CLI</h2>
       <p>Ogni funzione del browser è disponibile via API REST

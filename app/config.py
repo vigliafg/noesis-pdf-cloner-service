@@ -13,7 +13,27 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
+from .envfile import config_path, parse_env_file
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_env_file(data_dir: Path) -> None:
+    """Carica ``<data_dir>/noesis.env`` nell'ambiente, **senza** sovrascrivere.
+
+    L'ambiente esplicito (shell, systemd ``Environment=``, Docker ``-e``) ha la
+    precedenza. Un valore **vuoto** però conta come "non impostato": alcuni
+    compose passano ``OPENROUTER_API_KEY=""`` quando la variabile non è definita,
+    e non deve impedire al file di valere. Così il file di configurazione vale
+    allo stesso modo per console, systemd, Docker e ``uvicorn`` diretto.
+    """
+    try:
+        text = config_path(data_dir).read_text(encoding="utf-8")
+    except OSError:
+        return
+    for key, value in parse_env_file(text).items():
+        if not os.environ.get(key, "").strip():
+            os.environ[key] = value
 
 
 def _env_str(name: str, default: str = "") -> str:
@@ -92,7 +112,9 @@ class Settings:
     preflight_guard: bool = True
 
     # ── stima tempo/costo (0 = usa i default interni) ───────────────────
-    estimate_ms_per_page: dict = field(default_factory=dict)  # engine → ms
+    estimate_ms_per_page: dict = field(
+        default_factory=lambda: {"google": 0, "bing": 0, "llm": 0}
+    )  # engine → ms (0 = default interno)
     # Prezzo commerciale per pagina (centesimi). Default 0 = servizio gratuito:
     # per il motore LLM la stima mostra il costo *stimato* che l'utente paga sul
     # proprio account OpenRouter (BYOK). Imposta >0 solo per un'offerta a
@@ -126,6 +148,11 @@ class Settings:
     terms_version: str = "1.0"
     # Richiede l'accettazione dei Termini (versione corrente) per creare un job.
     require_terms_acceptance: bool = False
+
+    # Chiavi presenti nell'ambiente **prima** di leggere ``noesis.env``: la
+    # pagina di configurazione le usa per dire se un valore arriva dalla shell,
+    # da systemd o da Docker invece che dal file.
+    shell_env_keys: frozenset = field(default_factory=frozenset)
 
     # ── derivati ────────────────────────────────────────────────────────
     def __post_init__(self) -> None:
@@ -175,11 +202,16 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        data_dir = Path(_env_str("DATA_DIR", str(_REPO_ROOT / "data")))
+        # Il file di configurazione vale per tutti i modi di avvio; l'ambiente
+        # esplicito resta più forte (vedi ``_load_env_file``).
+        shell_before = frozenset(os.environ)
+        _load_env_file(data_dir)
         cache_root = _env_str("CACHE_ROOT") or None
         settings = cls(
             host=_env_str("HOST", "127.0.0.1"),
             port=_env_int("PORT", 18080),
-            data_dir=Path(_env_str("DATA_DIR", str(_REPO_ROOT / "data"))),
+            data_dir=data_dir,
             cache_root=Path(cache_root) if cache_root else None,
             workers=_env_int("WORKERS", 0),
             page_concurrency=_env_int("PAGE_CONCURRENCY", 0),
@@ -245,6 +277,7 @@ class Settings:
             terms_version=_env_str("TERMS_VERSION", "1.0"),
             require_terms_acceptance=_env_bool("REQUIRE_TERMS_ACCEPTANCE", False),
         )
+        settings.shell_env_keys = shell_before
         from .resources import apply_autosize
 
         apply_autosize(settings)

@@ -162,6 +162,15 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
 - **Pubblicazione**: GitHub Pages abilitato e **guida online**
   (<https://vigliafg.github.io/noesis-pdf-cloner-service/>); pushato su `main`
   (`pages` ✅, `security` ✅, `tests` ✅); 5 PR Dependabot mergiate.
+- **Configurazione guidata** (25/09/2026): pagina **`/settings`** (solo dalla
+  macchina locale, incluso il **gateway del container**: zero configurazione) con
+  campo **chiave OpenRouter write-only** e pulsante di verifica; API
+  `GET/PUT /api/v1/settings` + `POST /api/v1/settings/verify-key`; comando
+  **`noesis config`** (`--show/--set/--unset/--list`); **schema unico** in
+  `app/envfile.py` condiviso da web e console; `<data_dir>/noesis.env` letto
+  all'avvio in **tutti** i contesti (script bash/ps1, systemd, **Docker**,
+  uvicorn diretto); i segreti non vengono mai esposti; le chiavi di deploy
+  (`HOST`, `PORT`, `ROLE`, ...) restano solo da riga di comando.
 
 **Coda di lavoro (backlog)** — aggiornata al 25/09/2026.
 *Stato: servizio locale, **non esposto a terzi**.*

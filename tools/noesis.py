@@ -9,6 +9,7 @@ Comandi principali::
 
     noesis install     crea venv + motore, config, servizio, pre-warm
     noesis start/stop/restart/status/logs
+    noesis config      mostra/modifica la configurazione (noesis.env)
     noesis doctor      diagnosi (cosa manca e perché)
     noesis open        apre il frontend nel browser
     noesis service     install/uninstall/status del servizio
@@ -58,6 +59,12 @@ REQUIREMENTS_ENGINE_LOCK = "requirements-engine.lock"
 PYTHON_VERSION = "3.12"
 UV_INSTALL_SH = "https://astral.sh/uv/install.sh"
 UV_INSTALL_PS1 = "https://astral.sh/uv/install.ps1"
+
+# Schema e validazione della configurazione: fonte unica condivisa con la
+# pagina ``/settings``. Solo standard library (nessuna dipendenza dai venv).
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from app import envfile as _envfile  # noqa: E402
 BABELDOC_CACHE_ENV = ("BABELDOC_CACHE_DIR", "BABELDOC_CACHE")
 STOP_TIMEOUT = 20.0
 UFW_CONF = Path("/etc/ufw/ufw.conf")
@@ -71,14 +78,8 @@ DEFAULT_CONFIG: dict[str, str] = {
     "AUTOSIZE": "true",
 }
 
-CONFIG_HEADER = """\
-# Noesis PDF Cloner Service — configurazione
-# Generato da `noesis install`. È un file .env: le variabili sono le stesse
-# lette dall'applicazione (vedi README, "Configurazione").
-#
-# HOST=0.0.0.0 rende il servizio raggiungibile dalla LAN; in locale puoi usare
-# anche 127.0.0.1. OPENROUTER_API_KEY serve solo per il motore `llm`.
-"""
+# Intestazione del file: unica fonte in ``app/envfile.py`` (console + web).
+CONFIG_HEADER = _envfile.CONFIG_HEADER
 
 
 # ── ambiente / piattaforma ──────────────────────────────────────────────────
@@ -330,28 +331,12 @@ class CommandError(RuntimeError):
 
 
 # ── configurazione (noesis.env) ─────────────────────────────────────────────
+#
+# Lettura/scrittura del formato `.env`: stessa implementazione della pagina
+# `/settings` (``app/envfile.py``), così console e web non divergono mai.
 
-_ENV_LINE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
-
-
-def parse_env_file(text: str) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        match = _ENV_LINE.match(line)
-        if not match:
-            continue
-        key, value = match.group(1), match.group(2)
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        values[key] = value
-    return values
-
-
-def config_path(data_dir: Path) -> Path:
-    return Path(data_dir) / "noesis.env"
+parse_env_file = _envfile.parse_env_file
+config_path = _envfile.config_path
 
 
 def load_config(data_dir: Path) -> dict[str, str]:
@@ -364,14 +349,9 @@ def load_config(data_dir: Path) -> dict[str, str]:
 
 
 def render_config(values: dict[str, str]) -> str:
-    lines = [CONFIG_HEADER]
-    for key, value in values.items():
-        lines.append(f"{key}={value}")
-    lines.append("")
-    lines.append("# ── Segreti (solo da qui, mai nel codice) ───────────────────────")
-    if "OPENROUTER_API_KEY" not in values:
-        lines.append("# OPENROUTER_API_KEY=")
-    return "\n".join(lines) + "\n"
+    return _envfile.render_env_file(
+        values, header=CONFIG_HEADER, secret_placeholder="OPENROUTER_API_KEY"
+    )
 
 
 def save_config(data_dir: Path, values: dict[str, str], *, overwrite: bool = False) -> Path:
@@ -407,7 +387,8 @@ def ensure_openrouter_key(data_dir: Path, ui: UI) -> None:
         return
     if not ui.is_interactive():
         ui.info(
-            "chiave OpenRouter assente (opzionale, motore `llm`): aggiungila in "
+            "chiave OpenRouter assente (opzionale, motore `llm`): aggiungila con "
+            "`noesis config --set OPENROUTER_API_KEY` oppure in "
             f"{config_path(data_dir)} come OPENROUTER_API_KEY=…"
         )
         return
@@ -416,8 +397,9 @@ def ensure_openrouter_key(data_dir: Path, ui: UI) -> None:
     key = ui.prompt_secret("Chiave: ")
     if not key:
         ui.info(
-            "nessuna chiave inserita: potrai aggiungerla in "
-            f"{config_path(data_dir)} (OPENROUTER_API_KEY=…) e riavviare con `noesis restart`"
+            "nessuna chiave inserita: potrai aggiungerla con "
+            "`noesis config --set OPENROUTER_API_KEY` (oppure in "
+            f"{config_path(data_dir)}) e riavviare con `noesis restart`"
         )
         return
     save_config(data_dir, {"OPENROUTER_API_KEY": key})
@@ -1721,6 +1703,115 @@ def cmd_doctor(args: argparse.Namespace, ui: UI) -> int:
     return 0
 
 
+# ── configurazione (noesis config) ──────────────────────────────────────────
+
+
+def _config_file_values(data_dir: Path) -> dict[str, str]:
+    path = config_path(data_dir)
+    if not path.is_file():
+        return {}
+    return parse_env_file(path.read_text(encoding="utf-8"))
+
+
+def _config_list(ui: UI) -> None:
+    ui.section("Impostazioni disponibili")
+    for _group, title_it, _title_en, specs in _envfile.group_specs(web_only=False):
+        ui.section(title_it)
+        for spec in specs:
+            scope = "" if spec.web_editable else "  (solo console)"
+            default = spec.default if spec.default else "—"
+            ui.info(f"{spec.name}  [{spec.kind}]  default={default}{scope}")
+            if spec.desc_it:
+                ui.info(f"    {spec.desc_it}")
+
+
+def _config_show(data_dir: Path, ui: UI) -> None:
+    values = load_config(data_dir)
+    file_values = _config_file_values(data_dir)
+    ui.section("Configurazione")
+    ui.info(f"file: {config_path(data_dir)}")
+    for _group, title_it, _title_en, specs in _envfile.group_specs(web_only=False):
+        ui.section(title_it)
+        for spec in specs:
+            raw = values.get(spec.name, spec.default)
+            if spec.secret:
+                shown = "impostata" if raw.strip() else "assente"
+            else:
+                shown = raw if raw != "" else "(vuoto)"
+            if spec.name in file_values:
+                source = "file"
+            elif spec.name in os.environ:
+                source = "ambiente"
+            else:
+                source = "default"
+            ui.info(f"{spec.name} = {shown}   [{source}]")
+
+
+def _config_apply(args: argparse.Namespace, ui: UI, data_dir: Path) -> int:
+    updates: dict[str, str] = {}
+    removals: list[str] = []
+    key_changed = False
+
+    for item in args.set:
+        name, sep, value = item.partition("=")
+        spec = _envfile.spec_by_name(name)
+        if spec is None:
+            ui.error(f"impostazione sconosciuta: {name} (vedi `noesis config --list`)")
+            return 2
+        if spec.secret and not sep:
+            value = ui.prompt_secret(f"{spec.name}: ")
+        try:
+            normalized = _envfile.validate_value(spec, value)
+        except _envfile.InvalidValue as exc:
+            ui.error(str(exc))
+            return 2
+        if spec.secret and not normalized:
+            removals.append(spec.name)
+        else:
+            updates[spec.name] = normalized
+            if spec.secret:
+                key_changed = True
+
+    for name in args.unset:
+        spec = _envfile.spec_by_name(name)
+        if spec is None:
+            ui.error(f"impostazione sconosciuta: {name} (vedi `noesis config --list`)")
+            return 2
+        removals.append(spec.name)
+
+    if not updates and not removals:
+        ui.info("nessuna modifica")
+        return 0
+    if DRY_RUN:
+        ui.info(f"[dry-run] aggiornerei {config_path(data_dir)}")
+        return 0
+
+    _envfile.save_env_file(
+        config_path(data_dir),
+        updates,
+        remove=removals,
+        defaults=DEFAULT_CONFIG,
+        header=CONFIG_HEADER,
+    )
+    ui.ok(f"configurazione salvata in {config_path(data_dir)} (0600)")
+    ui.info("applica le modifiche con `./noesis restart`")
+    if key_changed:
+        verify_openrouter_key(data_dir, ui)
+    return 0
+
+
+def cmd_config(args: argparse.Namespace, ui: UI) -> int:
+    """Mostra o modifica la configurazione (``<data_dir>/noesis.env``)."""
+    data_dir = Path(args.data_dir).expanduser()
+    if args.list:
+        _config_list(ui)
+        return 0
+    if args.set or args.unset:
+        return _config_apply(args, ui, data_dir)
+    _config_show(data_dir, ui)
+    return 0
+
+
 def cmd_open(args: argparse.Namespace, ui: UI) -> int:
     data_dir = Path(args.data_dir).expanduser()
     host, port = resolve_host_port(args, data_dir)
@@ -2054,6 +2145,19 @@ def build_parser() -> argparse.ArgumentParser:
     _common(doctor)
     doctor.add_argument("--strict", action="store_true", help="esci con errore anche sugli avvisi")
 
+    configp = sub.add_parser("config", help="mostra o modifica la configurazione")
+    _common(configp)
+    configp.add_argument("--show", action="store_true", help="mostra i valori effettivi (default)")
+    configp.add_argument("--list", action="store_true", help="elenca le impostazioni disponibili")
+    configp.add_argument(
+        "--set", action="extend", nargs="+", default=[], metavar="CHIAVE=VALORE",
+        help="imposta uno o più valori; per i segreti senza = chiede in modo nascosto",
+    )
+    configp.add_argument(
+        "--unset", action="extend", nargs="+", default=[], metavar="CHIAVE",
+        help="rimuovi uno o più valori",
+    )
+
     openp = sub.add_parser("open", help="apri il frontend nel browser")
     _common(openp)
 
@@ -2104,6 +2208,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, UI], int]] = {
     "status": cmd_status,
     "logs": cmd_logs,
     "doctor": cmd_doctor,
+    "config": cmd_config,
     "open": cmd_open,
     "service": cmd_service,
     "bundle": cmd_bundle,

@@ -17,6 +17,11 @@ if ! touch "$DATA_DIR/.write_test" 2>/dev/null; then
 fi
 rm -f "$DATA_DIR/.write_test"
 
+# Configurazione: le variabili d'ambiente del container hanno la precedenza, ma
+# l'app legge anche "$DATA_DIR/noesis.env" (creato dalla pagina /settings o da
+# `docker exec noesis ./noesis config --set ...`). Una variabile vuota (es.
+# OPENROUTER_API_KEY="") vale come "non impostata".
+
 # Con ROLE=all coda e semafori del motore sono locali → un solo processo uvicorn.
 # Con ROLE=worker si consuma la coda senza esporre HTTP (come run-worker.sh).
 if [ "$ROLE" = "worker" ]; then

@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
+from .admin import is_local_client
 from .api.v1 import api_router
 from .config import Settings, get_settings
 from .context import AppContext
@@ -107,11 +108,41 @@ def create_app(
     if STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+    def _is_local(request: Request) -> bool:
+        host = request.client.host if request.client else None
+        return is_local_client(host, request.headers)
+
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
         return templates.TemplateResponse(
             request,
             "index.html",
+            {
+                "version": __version__,
+                "help_url": settings.help_url,
+                "terms_version": settings.terms_version,
+                "settings_local": _is_local(request),
+            },
+        )
+
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(request: Request) -> HTMLResponse:
+        if not _is_local(request):
+            return HTMLResponse(
+                status_code=403,
+                content=(
+                    "<!doctype html><meta charset='utf-8'>"
+                    "<title>Configurazione non disponibile</title>"
+                    "<body style='font-family:system-ui;max-width:40rem;margin:4rem auto'>"
+                    "<h1>Configurazione non disponibile</h1>"
+                    "<p>Questa pagina è accessibile solo dal computer che ospita "
+                    "il servizio.</p>"
+                    "<p><a href='/'>← Torna alla home</a></p>"
+                ),
+            )
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
             {
                 "version": __version__,
                 "help_url": settings.help_url,

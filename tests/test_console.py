@@ -1271,6 +1271,69 @@ def test_uninstall_interactive_all(tmp_path, monkeypatch):
     assert not babeldoc.exists() and not data.exists()
 
 
+# ── noesis config ───────────────────────────────────────────────────────────
+
+
+def _config_args(data_dir, *, list_=False, set_=None, unset=None):
+    return argparse.Namespace(
+        data_dir=str(data_dir),
+        list=list_,
+        set=list(set_ or []),
+        unset=list(unset or []),
+        json=False,
+        quiet=True,
+        dry_run=False,
+    )
+
+
+def test_config_set_e_show(tmp_path):
+    ui = noesis.UI(quiet=True)
+    code = noesis.cmd_config(
+        _config_args(tmp_path, set_=["MAX_UPLOAD_MB=250", "AUTOSIZE=no"]), ui
+    )
+    assert code == 0
+    loaded = noesis.load_config(tmp_path)
+    assert loaded["MAX_UPLOAD_MB"] == "250"
+    assert loaded["AUTOSIZE"] == "false"
+    assert noesis.cmd_config(_config_args(tmp_path), ui) == 0
+
+
+def test_config_valore_invalido(tmp_path):
+    ui = noesis.UI(quiet=True)
+    assert noesis.cmd_config(_config_args(tmp_path, set_=["MAX_UPLOAD_MB=abc"]), ui) == 2
+
+
+def test_config_chiave_sconosciuta(tmp_path):
+    ui = noesis.UI(quiet=True)
+    assert noesis.cmd_config(_config_args(tmp_path, set_=["BOH=1"]), ui) == 2
+
+
+def test_config_unset(tmp_path):
+    ui = noesis.UI(quiet=True)
+    noesis.cmd_config(_config_args(tmp_path, set_=["TERMS_VERSION=2.0"]), ui)
+    assert noesis.load_config(tmp_path)["TERMS_VERSION"] == "2.0"
+    assert noesis.cmd_config(_config_args(tmp_path, unset=["TERMS_VERSION"]), ui) == 0
+    assert "TERMS_VERSION" not in noesis.parse_env_file(
+        noesis.config_path(tmp_path).read_text(encoding="utf-8")
+    )
+
+
+def test_config_segreto_chiede_in_modo_nascosto(tmp_path, monkeypatch):
+    ui = noesis.UI(quiet=True)
+    monkeypatch.setattr(noesis.UI, "is_interactive", lambda self: True)
+    monkeypatch.setattr(noesis.UI, "prompt_secret", lambda self, q: "sk-or-typed")
+    monkeypatch.setattr(noesis, "verify_openrouter_key", lambda *a, **k: True)
+    code = noesis.cmd_config(_config_args(tmp_path, set_=["OPENROUTER_API_KEY"]), ui)
+    assert code == 0
+    assert noesis.load_config(tmp_path)["OPENROUTER_API_KEY"] == "sk-or-typed"
+
+
+def test_config_list_non_scrive(tmp_path):
+    ui = noesis.UI(quiet=True)
+    assert noesis.cmd_config(_config_args(tmp_path, list_=True), ui) == 0
+    assert not noesis.config_path(tmp_path).exists()
+
+
 # ── helper ──────────────────────────────────────────────────────────────────
 
 

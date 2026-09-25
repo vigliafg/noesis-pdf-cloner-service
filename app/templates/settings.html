@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impostazioni — Noesis PDF Cloner</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="settings-body">
+  <header class="topbar">
+    <a class="brand" href="/">🧬 Noesis PDF Cloner <span class="tag">service</span></a>
+    <nav class="topnav">
+      <a class="btn ghost" href="{{ help_url }}" target="_blank" rel="noopener">Guida</a>
+      <a class="btn ghost" href="/">← Home</a>
+    </nav>
+    <div class="meta">v{{ version }}</div>
+  </header>
+
+  <main class="settings">
+    <h1>Impostazioni del server</h1>
+    <p class="settings-intro">
+      Qui configuri il servizio installato su questa macchina. I valori valgono per
+      <strong>tutti</strong> i job. Le modifiche si applicano <strong>dopo un
+      riavvio</strong>. La chiave OpenRouter non viene mai mostrata: puoi solo
+      impostarla, verificarla o rimuoverla.
+    </p>
+
+    <div class="settings-note" id="settings-loading">Caricamento…</div>
+    <div class="settings-banner hidden" id="settings-banner" role="status"></div>
+
+    <form id="settings-form" class="settings-form hidden">
+      <div id="settings-groups"></div>
+      <div class="settings-actions">
+        <button type="submit" class="btn primary" id="settings-save">Salva</button>
+        <button type="button" class="btn" id="settings-reload">Ricarica</button>
+        <span class="settings-path" id="settings-path"></span>
+      </div>
+    </form>
+
+    <p class="settings-restart hidden" id="settings-restart">
+      <strong>Modifiche salvate.</strong> Per applicarle riavvia il servizio:
+      <code>./noesis restart</code> — in Docker: <code>docker compose up -d</code>.
+    </p>
+  </main>
+
+  <script src="/static/settings.js" defer></script>
+</body>
+</html>

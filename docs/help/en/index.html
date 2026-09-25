@@ -31,6 +31,7 @@
       <a href="#download">Download</a>
       <div class="group-label">Platforms</div>
       <a href="#install">Installation</a>
+      <a href="#config">Configuration</a>
       <a href="#api">API &amp; CLI</a>
       <a href="#uninstall">Uninstall</a>
       <div class="group-label">Legal</div>
@@ -205,6 +206,20 @@ cd noesis-pdf-cloner-service
 ./install.sh</pre>
       <p>Full installation guide (Windows, offline, API+worker):
       <a href="https://github.com/vigliafg/noesis-pdf-cloner-service/blob/main/docs/INSTALL.md">docs/INSTALL.md</a>.</p>
+
+      <h2 id="config">Configuration</h2>
+      <p>The simplest way is the <strong>Settings page</strong>, opened from the
+      computer that hosts the service:</p>
+      <pre class="ascii">http://127.0.0.1:18080/settings</pre>
+      <p>You will find limits, performance, cleanup, engine, the
+      <strong>OpenRouter key</strong> and the legal options. Edit and press
+      <strong>Save</strong>, then <strong>restart</strong>:
+      <code>./noesis restart</code> (Docker: <code>docker compose up -d</code>).</p>
+      <p>The page is <strong>private</strong>: it only answers from the local
+      computer (or the one hosting Docker). Alternatively, from the console:
+      <code>./noesis config --show</code>,
+      <code>./noesis config --set KEY=VALUE</code>,
+      <code>./noesis config --list</code>.</p>
 
       <h2 id="api">API &amp; CLI</h2>
       <pre class="ascii">./run-cli.sh book.pdf -p 100-103 --src en --dst it --engine google</pre>

@@ -54,3 +54,15 @@ def client(settings, ctx):
     app = create_app(settings, context=ctx)
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def admin_client(settings, ctx):
+    """Client che simula una richiesta dalla macchina locale (127.0.0.1)."""
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    app = create_app(settings, context=ctx)
+    with TestClient(app, client=("127.0.0.1", 12345)) as test_client:
+        yield test_client

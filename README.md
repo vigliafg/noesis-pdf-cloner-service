@@ -159,9 +159,14 @@ arriva sulla macchina. Alla fine il servizio risponde su
    ```
 
    Lo script crea l'ambiente Python, installa il motore di traduzione, scrive la
-   configurazione, installa il **servizio con avvio automatico**, chiede la
-   chiave OpenRouter (puoi premere `Invio` per saltare) e verifica che tutto
-   funzioni.
+   configurazione e installa il **servizio con avvio automatico**. A un certo
+   punto, **nel terminale**, chiede la **chiave OpenRouter** (opzionale, serve
+   solo al motore `llm`): incolli la chiave e premi `Invio`; **non si vede
+   mentre la scrivi** (input nascosto). Se non ce l'hai, premi `Invio` per
+   **saltare**: potrai aggiungerla quando vuoi dall'ingranaggio
+   **⚙ Impostazioni** (vedi
+   [La chiave OpenRouter](#la-chiave-openrouter-serve-solo-al-motore-llm)).
+   Alla fine lo script verifica che tutto funzioni.
 
 5. **Attendi il messaggio finale.** A fine installazione vedrai un **report di
    salute**, i link locali e LAN, e l'indicazione che la porta 18080 è
@@ -211,7 +216,14 @@ curl -LsSf https://raw.githubusercontent.com/vigliafg/noesis-pdf-cloner-service/
 
    In alternativa puoi usare `.\noesis.cmd install` (anche da `cmd.exe`).
 
-4. **Attendi il report finale** e **apri il browser** su
+4. Durante l'installazione, **nel terminale**, ti viene chiesta la **chiave
+   OpenRouter** (opzionale, serve solo al motore `llm`): incollala e premi
+   `Invio`; **non si vede mentre la scrivi** (input nascosto). Se preferisci,
+   premi `Invio` per **saltare** e aggiungerla dopo dall'ingranaggio
+   **⚙ Impostazioni** (vedi
+   [La chiave OpenRouter](#la-chiave-openrouter-serve-solo-al-motore-llm)).
+
+5. **Attendi il report finale** e **apri il browser** su
    <http://localhost:18080>.
 
 Per l'uso in LAN: `.\install.ps1 -open-firewall` (può richiedere il consenso
@@ -321,6 +333,7 @@ Dopo l'installazione, tutte le operazioni si fanno con un solo comando:
 | `./noesis start` / `stop` / `restart` | avvia / ferma / riavvia in background |
 | `./noesis status` | stato del processo e del servizio |
 | `./noesis logs -n 100` | mostra le ultime righe di log |
+| `./noesis config` | mostra o modifica la configurazione (`--show`/`--set`/`--list`) |
 | `./noesis doctor` | diagnostica completa dell'installazione |
 | `./noesis open` | apre il frontend nel browser |
 | `./noesis update` | aggiorna codice e dipendenze |
@@ -762,28 +775,88 @@ senza overhead dava $0.00040, ~13× in meno). I parametri sono configurabili
 - **Verticale**: ridimensioni il VPS e riavvii → i limiti si ricalcolano.
 - **Orizzontale**: aumenti `WORKER_COUNT` e avvii altre unità worker.
 
-## Configurazione (variabili d'ambiente)
+## Come si configura
 
-Le stesse variabili si possono impostare nel file **`<data_dir>/noesis.env`**
-(creato da `./noesis install`): è il posto unico da modificare. Precedenza:
-opzione CLI > variabile della shell > `noesis.env` > default.
+Puoi configurare il servizio in **due modi**, equivalenti. Scegli quello che ti
+è più comodo.
 
-All'installazione la console chiede la **chiave OpenRouter** (opzionale, solo
-motore `llm`) con input **nascosto**; `noesis.env` è scritto con permessi `0600`.
-Subito dopo verifica **chiave, credito e modello** (stessi check di
-`/api/v1/health?deep=1`). In modalità non interattiva non chiede nulla: imposta
-`OPENROUTER_API_KEY` in `noesis.env` (o nell'ambiente) e riavvia con
-`./noesis restart`.
+### 1. Dalla pagina web (il più semplice)
+
+Dal computer su cui hai installato il servizio apri:
+
+```
+http://127.0.0.1:18080/settings
+```
+
+Trovi tutte le impostazioni, ciascuna con una spiegazione in parole semplici:
+limiti, prestazioni, pulizia, motore, **chiave OpenRouter** e opzioni legali.
+Modifica quello che ti serve e premi **Salva**. Poi **riavvia** il servizio:
+
+```bash
+./noesis restart          # installazione normale
+docker compose up -d      # Docker (ricrea il container)
+```
+
+> **Perché serve il riavvio?** Il servizio legge la configurazione all'avvio:
+> riavviandolo le modifiche entrano in vigore in modo sicuro.
+
+La pagina `/settings` è **privata**: risponde **solo dal computer che ospita il
+servizio** (con Docker, dal computer che ospita il container). Dalla LAN o
+attraverso un reverse proxy non è raggiungibile. Non devi configurare nulla:
+il servizio riconosce da sé la macchina locale.
+
+### 2. Dalla console (per chi usa il terminale)
+
+```bash
+./noesis config --show                 # mostra i valori attuali
+./noesis config --list                 # elenca cosa si può cambiare
+./noesis config --set MAX_UPLOAD_MB=250 TERMS_VERSION=2.0
+./noesis config --unset TERMS_VERSION
+```
+
+Su Windows usa `.\noesis.cmd` al posto di `./noesis`.
+
+### La chiave OpenRouter (serve solo al motore `llm`)
+
+I motori **`google`** e **`bing`** sono **gratuiti** e **non** usano la chiave.
+La chiave serve **solo** se scegli il motore **`llm`**. La trovi su
+<https://openrouter.ai/keys>. Puoi:
+
+- **inserirla durante l'installazione**: `./noesis install` la chiede **una
+  volta** (input nascosto) e la verifica subito;
+- **inserirla o cambiarla dopo**, in due modi equivalenti:
+  - dalla pagina `/settings` → campo **Chiave OpenRouter**, con il pulsante
+    **Verifica**;
+  - da console: `./noesis config --set OPENROUTER_API_KEY` (la chiede in modo
+    **nascosto**);
+- **rimuoverla**: svuota il campo nella pagina, oppure
+  `./noesis config --unset OPENROUTER_API_KEY`.
+
+La chiave è salvata in **`<data_dir>/noesis.env`** con permessi `0600` e **non
+viene mai mostrata** (né nella pagina, né nei log). Dopo averla inserita,
+controlla che funzioni con **Verifica** (nella pagina) o `./noesis doctor`.
+
+> In **Docker** puoi anche passarla come variabile:
+> `-e OPENROUTER_API_KEY="sk-or-..."` (oppure nel `.env` del compose). Con
+> **API e worker separati** (`docker-compose.prod.yml`) il BYOK dal browser non è
+> disponibile, quindi la chiave del server è **obbligatoria** per il motore `llm`.
+
+### Riferimento delle variabili
+
+Se preferisci i file (o per l'automazione), **tutte** le impostazioni sono
+variabili d'ambiente, salvabili in **`<data_dir>/noesis.env`**. Precedenza:
+**opzione CLI > variabile dell'ambiente > `noesis.env` > default**. Una variabile
+vuota vale come "non impostata". Le più utili:
 
 > La cartella dati dipende dal metodo di installazione: con la console è quella
 > standard dell'OS (Linux/WSL `~/.local/share/noesis-pdf-cloner-service`, macOS
 > `~/Library/Application Support/noesis-pdf-cloner-service`, Windows
 > `%LOCALAPPDATA%\noesis-pdf-cloner-service`); con la CLI/avvio manuale è
-> `./data` se non diversamente indicato.
+> `./data` se non diversamente indicato. In Docker è il volume `/data`.
 
 | Variabile | Default | Descrizione |
 |---|---|---|
-| `HOST` / `PORT` | `127.0.0.1` / `18080` | bind del server |
+| `HOST` / `PORT` | `0.0.0.0` / `18080` | bind del server (`0.0.0.0` = anche LAN; `127.0.0.1` = solo locale) |
 | `DATA_DIR` | `./data` | dati (upload, DB, log, artefatti) |
 | `CACHE_ROOT` | `<DATA_DIR>/cache` | cache di split/traduzioni (condivisa con la CLI) |
 | `AUTOSIZE` | `true` | adatta workers/concorrenza/processi alla macchina |
@@ -800,6 +873,7 @@ Subito dopo verifica **chiave, credito e modello** (stessi check di
 | `MAX_QUEUE_SIZE` | `100` | job in coda prima di rispondere 429 |
 | `MAX_PAGES_PER_BLOCK` | `100` | pagine elaborate per blocco (il job può coprire l'intero libro) |
 | `MAX_PAGES_TOTAL` | `5000` | pagine massime richiedibili in un job |
+| `PAGE_TIMEOUT` | `900` | tempo massimo per pagina (secondi) |
 | `ESTIMATE_MS_PER_PAGE_GOOGLE` / `_BING` / `_LLM` | `0` | override stima ms/pagina (`0` = storico/default; alias `_OPENAI`) |
 | `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_LLM` | `0` / `0` / `0` | prezzo commerciale per pagina in centesimi (default `0` = gratuito: per LLM la stima mostra il costo stimato a carico dell'utente su OpenRouter; alias `_OPENAI`) |
 | `LLM_PRICE_PROMPT_PER_MTOK` | `0.04` | prezzo prompt LLM (USD per milione di token) |
@@ -810,6 +884,8 @@ Subito dopo verifica **chiave, credito e modello** (stessi check di
 | `ESTIMATE_SAMPLE_PAGES` | `12` | pagine campionate per stimare i caratteri |
 | `JOB_RETENTION_HOURS` | `72` | retention di artefatti e log |
 | `DOCUMENT_RETENTION_HOURS` | `24` | retention dei documenti non usati |
+| `THUMB_RETENTION_HOURS` | `168` | retention delle anteprime |
+| `JANITOR_INTERVAL_SECONDS` | `600` | ogni quanto gira la pulizia automatica |
 | `PDF2ZH_BIN` | auto | percorso dell'eseguibile `pdf2zh_next` |
 | `OPENROUTER_API_KEY` | — | necessaria per il motore `llm` |
 | `PDF_LLM_MODEL` / `PDF_LLM_BASE_URL` | `inception/mercury-2.5` / OpenRouter | modello LLM |
@@ -817,10 +893,12 @@ Subito dopo verifica **chiave, credito e modello** (stessi check di
 | `AUTH_MODE` | `none` | seam auth: `none` \| `proxy` \| `jwt` |
 | `TRUSTED_PROXY_HEADERS` | `false` | fidati degli header del reverse proxy |
 | `QUOTA_ENABLED` / `FEATURE_OCR` / `FEATURE_PAYMENTS` | `false` | seam commerciali |
-| `RATE_LIMIT_PER_MINUTE` | `120` | rate limit per attore |
+| `RATE_LIMIT_PER_MINUTE` | `120` | richieste API al minuto per attore |
+| `RATE_LIMIT_JOBS_PER_HOUR` | `60` | job all'ora per attore |
 | `HELP_URL` | GitHub Pages del repo | URL del pulsante "Guida" in home |
 | `TERMS_VERSION` | `1.0` | versione dei Termini (gate + `/meta`) |
 | `REQUIRE_TERMS_ACCEPTANCE` | `false` | richiede l'accettazione dei Termini per creare un job (attivare quando esponi) |
+| `ADMIN_ALLOW_FROM` | vuoto | IP/CIDR extra ammessi alla pagina `/settings` (di norma basta il riconoscimento automatico locale/Docker) |
 
 ## Test
 

@@ -42,21 +42,50 @@ docker compose up -d
 
 ## Configurazione
 
-Tutte le impostazioni sono variabili d'ambiente (le stesse della console, vedi
-[`INSTALL.md`](INSTALL.md)). Le più usate:
+Hai **due modi**, equivalenti:
 
-| Variabile | Default | Note |
-|---|---|---|
-| `HOST` | `0.0.0.0` | nell'immagine è già `0.0.0.0` |
-| `PORT` | `18080` | porta del servizio |
-| `DATA_DIR` | `/data` | upload, cache, artefatti, log, `jobs.db` |
-| `OPENROUTER_API_KEY` | — | serve solo al motore `llm` |
-| `ROLE` | `all` | `all` (API+worker) · `api` · `worker` |
-| `WORKERS` | autosize | job in parallelo |
-| `PAGE_CONCURRENCY` | autosize | pagine in parallelo per job |
-| `MAX_ENGINE_PROCS` | autosize | processi `pdf2zh_next` simultanei |
-| `WORKER_COUNT` | `1` | numero di processi worker (per dividere le risorse) |
-| `PDF_LLM_MODEL` | `inception/mercury-2.5` | modello LLM |
+1. **Variabili d'ambiente** (`-e` su `docker run`, oppure `.env` / compose). Le
+   più usate:
+
+   | Variabile | Default | Note |
+   |---|---|---|
+   | `HOST` | `0.0.0.0` | nell'immagine è già `0.0.0.0` |
+   | `PORT` | `18080` | porta del servizio |
+   | `DATA_DIR` | `/data` | upload, cache, artefatti, log, `jobs.db` |
+   | `OPENROUTER_API_KEY` | — | serve solo al motore `llm` |
+   | `ROLE` | `all` | `all` (API+worker) · `api` · `worker` |
+   | `WORKERS` | autosize | job in parallelo |
+   | `PAGE_CONCURRENCY` | autosize | pagine in parallelo per job |
+   | `MAX_ENGINE_PROCS` | autosize | processi `pdf2zh_next` simultanei |
+   | `WORKER_COUNT` | `1` | numero di processi worker (per dividere le risorse) |
+   | `PDF_LLM_MODEL` | `inception/mercury-2.5` | modello LLM |
+
+2. **Pagina `/settings`** — la più semplice. Dal **computer che ospita Docker**
+   apri <http://localhost:18080/settings>: trovi limiti, prestazioni, pulizia,
+   motore, **chiave OpenRouter** e le opzioni legali. Salva in
+   **`/data/noesis.env`** (dentro il volume). Le modifiche valgono dopo
+   `docker compose up -d` (ricrea il container).
+
+   La pagina è accessibile **solo dalla macchina locale** (o dal computer che
+   ospita il container): è un riconoscimento automatico, non serve configurare
+   nulla. Per lo stesso motivo non è raggiungibile dalla LAN né da un reverse
+   proxy.
+
+   Da riga di comando, dentro il container:
+
+   ```bash
+   docker exec noesis ./noesis config --show
+   docker exec noesis ./noesis config --set MAX_UPLOAD_MB=250
+   docker exec noesis ./noesis config --list
+   ```
+
+> **Precedenza**: variabile d'ambiente > `/data/noesis.env` > default. Una
+> variabile **vuota** (es. `OPENROUTER_API_KEY=""` non definita nel compose) vale
+> come "non impostata", quindi non blocca il valore salvato nella pagina.
+
+> **BYOK e worker separati**: con `ROLE=api` + `ROLE=worker` (compose di
+> produzione) la chiave dal browser **non** è disponibile. Per il motore `llm`
+> imposta la **chiave del server** (`OPENROUTER_API_KEY` o pagina `/settings`).
 
 ## Volumi e persistenza
 

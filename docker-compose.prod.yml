@@ -11,6 +11,11 @@
 #
 # Nota: WORKER_REPLICAS deve essere il numero TOTALE di worker (le risorse sono
 # divise per quel numero all'interno di ogni container).
+#
+# Nota sulla chiave: con API e worker separati il BYOK (chiave dal browser) non è
+# disponibile (serve ROLE=all), quindi per il motore `llm` la chiave del server è
+# obbligatoria. Impostala qui (OPENROUTER_API_KEY=…) oppure dalla pagina
+# http://localhost:18080/settings dal computer che ospita Docker.
 
 services:
   api:

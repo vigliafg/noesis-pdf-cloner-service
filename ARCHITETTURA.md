@@ -307,6 +307,30 @@ vedono **numeri 1-based**; la conversione avviene in un solo punto.
   offerta del sorgente (`LICENSE`/`NOTICE`); la **traduzione** richiede comunque
   rete in uscita.
 
+### ADR-018 — Configurazione su file unico, editabile dal web e da console
+- **Decisione**: un solo file **`<data_dir>/noesis.env`** è la fonte di verità
+  per le impostazioni, letto all'avvio da `Settings.from_env` in **tutti** i
+  contesti (script bash/ps1, systemd, **Docker**, `uvicorn` diretto). Lo schema e
+  la validazione vivono in **`app/envfile.py`** (solo stdlib) e sono condivisi da:
+  pagina **`/settings`** (solo dalla macchina locale, incluso il gateway del
+  container Docker), API `GET/PUT /api/v1/settings` + `POST .../verify-key`, e
+  comando **`noesis config`** (`--show/--set/--unset/--list`).
+- **Perché**: l'utente non tecnico configura dal browser (una pagina, niente
+  file); chi usa la console ha gli stessi strumenti; una sola implementazione
+  evita che web e CLI divergano. Un file unico evita la confusione tra Docker
+  (`-e`) e nativi.
+- **Alternative**: hot-reload a runtime (fragile su più processi: `Settings` è
+  immutato per processo → si è scelto il **riavvio**); pannello web pubblico
+  (rifiutato: la home la vedono gli utenti finali); duplicare lo schema lato JS.
+- **Sicurezza**: accesso **solo locale** (loopback **o** gateway del container,
+  proxy con `X-Forwarded-For`/`X-Real-IP` rifiutati; `ADMIN_ALLOW_FROM` per casi
+  speciali); i **segreti** (`OPENROUTER_API_KEY`) sono write-only e non vengono
+  mai restituiti; le chiavi di deploy (`HOST`, `PORT`, `ROLE`, `QUEUE_BACKEND`,
+  `DATA_DIR`, `CACHE_ROOT`) restano **solo** da riga di comando.
+- **Conseguenze**: le modifiche valgono **al riavvio** (`./noesis restart` /
+  `docker compose up -d`); una variabile d'ambiente **vuota** vale come "non
+  impostata" (i compose passano `OPENROUTER_API_KEY=""`).
+
 ---
 
 ## 7. Concorrenza e scalabilità

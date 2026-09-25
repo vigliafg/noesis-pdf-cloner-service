@@ -22,6 +22,9 @@ services:
       # WORKERS: "2"
       # PAGE_CONCURRENCY: "2"
       # MAX_ENGINE_PROCS: "2"
+      # In alternativa alle variabili, apri http://localhost:18080/settings dal
+      # computer che ospita Docker: le impostazioni si salvano in /data/noesis.env
+      # e valgono dopo `docker compose up -d` (ricrea il container).
       # Per più worker: 1 container con ROLE=api + N con ROLE=worker e WORKER_COUNT=N
       # (stesso volume /data).
     restart: unless-stopped

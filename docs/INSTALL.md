@@ -68,6 +68,7 @@ processo lo segnala **prima** di avviare.
 | `./noesis start` / `stop` / `restart` | avvia/ferma/riavvia in background |
 | `./noesis status` | processo, `/api/v1/health` e stato del servizio |
 | `./noesis logs -n 100` | ultime righe di log |
+| `./noesis config` | mostra/modifica la configurazione (`--show`/`--set`/`--unset`/`--list`) |
 | `./noesis doctor` | diagnosi completa (cosa manca e perché) |
 | `./noesis open` | apre il frontend nel browser |
 | `./noesis service install\|uninstall\|status` | gestione del servizio |
@@ -80,6 +81,21 @@ Opzioni utili: `--data-dir`, `--host`, `--port`, `--mode user|system`,
 `--json`, `--ci`.
 
 ## Configurazione
+
+Il modo più semplice è la **pagina web** <http://127.0.0.1:18080/settings>: dal
+computer che ospita il servizio vedi tutte le impostazioni (con spiegazione) e la
+**chiave OpenRouter**, modifichi e premi **Salva**. Le modifiche valgono dopo
+`./noesis restart`. La pagina è riservata alla macchina locale.
+
+In alternativa, da console:
+
+```bash
+./noesis config --show                 # valori attuali
+./noesis config --list                 # cosa si può cambiare
+./noesis config --set MAX_UPLOAD_MB=250
+./noesis config --set OPENROUTER_API_KEY   # input nascosto
+./noesis config --unset TERMS_VERSION
+```
 
 File unico: **`<data_dir>/noesis.env`** (stesse variabili lette
 dall'applicazione, vedi il README). La cartella dati di default è quella
@@ -95,13 +111,15 @@ Precedenza: **opzione CLI > variabile d'ambiente della shell > `noesis.env` >
 default**. I segreti (`OPENROUTER_API_KEY`) vanno **solo** qui o nell'ambiente,
 mai nel codice.
 
-La chiave OpenRouter (solo motore `llm`) può essere inserita in tre modi:
+La chiave OpenRouter (solo motore `llm`) può essere inserita in questi modi:
 - durante `./noesis install` — prompt nascosto, se la sessione è interattiva, con
   **verifica immediata** di chiave, credito e modello;
+- dalla pagina `/settings` — campo dedicato, con pulsante **Verifica**;
+- con `./noesis config --set OPENROUTER_API_KEY` — input nascosto, poi verifica;
 - in `<data_dir>/noesis.env` come `OPENROUTER_API_KEY=…` (il file è scritto a `0600`);
 - nell'ambiente (`OPENROUTER_API_KEY=…`), che ha **precedenza**.
 
-Dopo una modifica manuale del file: `./noesis restart`.
+Dopo una modifica: `./noesis restart`.
 
 ## Standalone e LAN
 
