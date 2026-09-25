@@ -108,9 +108,11 @@ def test_engine_injects_llm_env_into_subprocess(tmp_path, monkeypatch):
     monkeypatch.setattr(engine, "pdf2zh_bin", lambda: fake_bin)
 
     captured: dict = {}
+    captured_cmd: list = []
 
     def fake_run(cmd, env, cancel_event):
         captured.update(env)
+        captured_cmd.extend(cmd)
         out_dir = cmd[cmd.index("--output") + 1]
         doc = pymupdf.open()
         doc.new_page()
@@ -130,6 +132,11 @@ def test_engine_injects_llm_env_into_subprocess(tmp_path, monkeypatch):
     assert captured["PDF_LLM_MODEL"] == "inception/mercury-2.5"
     assert captured["PDF_LLM_BASE_URL"] == "https://example.test/v1"
     assert captured["OPENROUTER_API_KEY"] == "segreta"
+    # Versione attesa da pdf2zh_next (prefisso PDF2ZH_).
+    assert captured["PDF2ZH_OPENAI_API_KEY"] == "segreta"
+    # La chiave non deve MAI comparire nella riga di comando (argv).
+    assert all("segreta" not in str(a) for a in captured_cmd)
+    assert "--openai-api-key" not in captured_cmd
 
 
 def test_google_clitranslator_command_roundtrips_windows_paths(tmp_path, monkeypatch):

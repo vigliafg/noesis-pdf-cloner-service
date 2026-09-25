@@ -316,7 +316,9 @@ def test_estimate_after_cache_hit(client):
     assert estimate["pages_to_translate"] == 0
 
 
-def test_estimate_llm_commercial_price(client):
+def test_estimate_llm_commercial_price(client, ctx):
+    # Il codice commerciale resta: con un prezzo esplicito si usa quello.
+    ctx.settings.cost_cents_per_page = {"google": 0, "bing": 0, "llm": 1}
     document = _upload(client, pages=2)
     estimate = client.post(
         "/api/v1/jobs/estimate",
@@ -325,7 +327,7 @@ def test_estimate_llm_commercial_price(client):
             "dst_lang": "it", "engine": "llm",
         },
     ).json()
-    # Prezzo commerciale di default: 1 centesimo/pagina (EUR).
+    # Prezzo commerciale configurato: 1 centesimo/pagina (EUR).
     assert estimate["currency"] == "EUR"
     assert estimate["cost_cents"] == 2.0
     assert "configurato" in estimate["note"]
@@ -344,6 +346,21 @@ def test_estimate_llm_cost_model(client, ctx):
     ).json()
     assert estimate["currency"] == "USD"
     assert estimate["cost_cents"] > 0
+    assert "overhead" in estimate["note"]
+
+
+def test_estimate_llm_default_e_gratuito(client):
+    # Default del servizio: gratuito → per LLM vale l'equazione (USD), non un
+    # prezzo commerciale.
+    document = _upload(client, pages=2)
+    estimate = client.post(
+        "/api/v1/jobs/estimate",
+        json={
+            "doc_id": document["doc_id"], "pages": "1-2",
+            "dst_lang": "it", "engine": "llm",
+        },
+    ).json()
+    assert estimate["currency"] == "USD"
     assert "overhead" in estimate["note"]
 
 

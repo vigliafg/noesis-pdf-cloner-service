@@ -86,6 +86,11 @@ class JobRequest(BaseModel):
     output_name: str | None = None
     range_mode: RangeMode = RangeMode.merged
     priority: int = 0
+    # Versione dei Termini accettata dall'utente (per il gate di accettazione).
+    terms_version: str | None = None
+    # Chiave OpenRouter dell'utente (BYOK). Usata solo per questo job, mai
+    # salvata su DB/log. Supportata con ROLE=all (API e worker nello stesso processo).
+    llm_api_key: str | None = None
 
 
 class EstimateRequest(BaseModel):
@@ -167,6 +172,11 @@ class MetaOut(BaseModel):
     languages: dict[str, str]
     limits: dict[str, Any]
     features: dict[str, Any]
+    terms_version: str = ""
+    help_url: str = ""
+    byok_supported: bool = True
+    llm_model: str = ""
+    terms_required: bool = False
 
 
 class EstimateOut(BaseModel):

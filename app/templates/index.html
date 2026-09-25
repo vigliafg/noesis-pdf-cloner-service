@@ -9,6 +9,10 @@
 <body>
   <header class="topbar">
     <div class="brand">🧬 Noesis PDF Cloner <span class="tag">service</span></div>
+    <nav class="topnav" aria-label="Aiuto e termini">
+      <a class="btn ghost" href="/terms">Termini d'uso</a>
+      <a class="btn ghost" href="{{ help_url }}" target="_blank" rel="noopener">Guida</a>
+    </nav>
     <div class="meta" id="service-meta">v{{ version }}</div>
   </header>
 
@@ -79,8 +83,28 @@
       <!-- 4 · motore -->
       <div class="pane" data-step="3" hidden>
         <h3>Motore</h3>
-        <p class="hint">Google/Bing sono gratuiti; LLM (OpenRouter) ha un costo per pagina.</p>
+        <p class="hint">Google/Bing sono gratuiti; LLM (OpenRouter) usa la tua
+          chiave: il costo è sul tuo account.</p>
         <div id="engines"></div>
+
+        <div id="llm-key-box" class="apikey-box hidden">
+          <label class="field"><span>Chiave OpenRouter <span class="apikey-model" id="llm-model"></span></span>
+            <div class="apikey-row">
+              <input type="password" id="llm-key" placeholder="sk-or-…" autocomplete="off" spellcheck="false">
+              <button type="button" class="btn small" id="llm-key-reveal" title="Mostra/nascondi">👁</button>
+            </div>
+          </label>
+          <div class="apikey-actions">
+            <label class="remember"><input type="checkbox" id="llm-remember"> Ricorda in questo browser</label>
+            <button type="button" class="btn small" id="llm-key-validate">Verifica chiave e modello</button>
+            <button type="button" class="btn small ghost" id="llm-key-forget">Dimentica</button>
+          </div>
+          <p class="hint" id="llm-key-status"></p>
+          <p class="hint">La chiave resta nel tuo browser e <strong>non viene salvata sul
+            server</strong>. La ottieni su
+            <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.</p>
+        </div>
+
         <div class="est" id="estimate"></div>
       </div>
 
@@ -97,6 +121,13 @@
           </div>
         </div>
         <div class="sum" id="summary"></div>
+        <label class="accept-terms" id="terms-box">
+          <input type="checkbox" id="accept-terms">
+          <span>Accetto i <a href="/terms" target="_blank" rel="noopener">Termini d'uso</a>
+          e l'<a href="/privacy" target="_blank" rel="noopener">Informativa privacy</a>.</span>
+        </label>
+        <p class="hint">Traduzione <strong>automatica (AI)</strong> — verifica sempre
+          il risultato prima di usarlo.</p>
         <p class="hint hidden" id="wizard-error"></p>
       </div>
 

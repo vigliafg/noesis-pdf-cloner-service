@@ -504,12 +504,14 @@ class CloneEngine:
     # ── traduzione ───────────────────────────────────────────────────────
     def _translator_flags(self, engine: str) -> tuple[list[str], str]:
         if normalize_engine(engine) == "llm":
+            # La chiave NON va passata come flag: finirebbe in argv
+            # (/proc/<pid>/cmdline, leggibile da altri utenti locali). Viene
+            # iniettata nell'ambiente in `_translate_uncached` (PDF2ZH_OPENAI_API_KEY).
             return (
                 [
                     "--openai",
                     "--openai-model", self.llm_model,
                     "--openai-base-url", self.llm_base_url,
-                    "--openai-api-key", self.api_key or os.environ.get("OPENROUTER_API_KEY", ""),
                 ],
                 f"llm ({self.llm_model})",
             )
@@ -664,8 +666,13 @@ class CloneEngine:
         # configurazione del servizio, anche se il modello è cambiato via codice.
         env["PDF_LLM_MODEL"] = self.llm_model
         env["PDF_LLM_BASE_URL"] = self.llm_base_url
-        if self.api_key:
-            env["OPENROUTER_API_KEY"] = self.api_key
+        # Chiave LLM: passata solo via ambiente, mai in argv. `OPENROUTER_API_KEY`
+        # serve al fallback LLM della catena gratuita (gtranslate_cli.py);
+        # `PDF2ZH_OPENAI_API_KEY` è la variabile letta da pdf2zh_next (prefisso PDF2ZH_).
+        llm_key = self.api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        if llm_key:
+            env["OPENROUTER_API_KEY"] = llm_key
+            env["PDF2ZH_OPENAI_API_KEY"] = llm_key
         try:
             log.info("traduzione pagina %d via %s", page + 1, t_name)
             result = self._run_engine(cmd, env, cancel_event)

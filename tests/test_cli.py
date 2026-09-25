@@ -78,3 +78,38 @@ def test_remote_mode_is_seam(tmp_path, capsys):
     pdf = make_pdf(tmp_path / "doc.pdf", 1)
     assert cli.main([str(pdf), "--server", "http://x"]) == 2
     assert "seam" in capsys.readouterr().err
+
+
+def test_llm_senza_chiave_e_fatale(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    pdf = make_pdf(tmp_path / "doc.pdf", 1)
+    code = cli.main([
+        str(pdf), "--engine", "llm",
+        "--data-dir", str(tmp_path / "data"), "--cache-dir", str(tmp_path / "cache"),
+    ])
+    assert code == 2
+    assert "chiave OpenRouter" in capsys.readouterr().err
+
+
+def test_llm_api_key_da_file(tmp_path):
+    key_file = tmp_path / "key.txt"
+    key_file.write_text("sk-or-file\n", encoding="utf-8")
+    args = cli.build_parser().parse_args([
+        "x.pdf", "--engine", "llm",
+        "--data-dir", str(tmp_path / "data"),
+        "--llm-api-key-file", str(key_file),
+    ])
+    settings = cli._settings_from_args(args)
+    assert settings.openrouter_api_key == "sk-or-file"
+
+
+def test_llm_api_key_flag_ha_precedenza_e_avvisa(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env")
+    args = cli.build_parser().parse_args([
+        "x.pdf", "--engine", "llm",
+        "--data-dir", str(tmp_path / "data"),
+        "--llm-api-key", "sk-or-flag",
+    ])
+    settings = cli._settings_from_args(args)
+    assert settings.openrouter_api_key == "sk-or-flag"
+    assert "ps/history" in capsys.readouterr().err

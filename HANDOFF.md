@@ -124,3 +124,104 @@ Docker:
 docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
   ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
 ```
+
+---
+
+## 6. Licenza, legale e guida (2026-09-25)
+
+**Implementato**
+
+- **Licenza su entrambi i repo**: `LICENSE` (AGPL-3.0) + `NOTICE` +
+  `ADDITIONAL_TERMS.md` (AGPL §7) + `TRADEMARK.md` + `SECURITY.md` +
+  `CONTRIBUTING.md` + `CLA.md` (nel desktop mancavano del tutto).
+- **Fix sicurezza chiave**: la chiave LLM non è più passata in `argv`
+  (`--openai-api-key`) ma solo via ambiente (`PDF2ZH_OPENAI_API_KEY`); con test
+  di non-leak. Riverberato in `clone_engine.py` del desktop (regola AGENTS).
+- **Documenti del servizio** in `legal/` (IT/EN): Termini, Privacy, Disclaimer,
+  Uso accettabile.
+- **Frontend**: pulsanti **Termini d'uso** (`/terms`) e **Guida** (GitHub Pages)
+  nella home; route `/terms`, `/privacy`, `/disclaimer`, `/acceptable-use`,
+  `/legal/{slug}`; `terms_version` e `help_url` in `GET /api/v1/meta`.
+- **Guida** statica "gemella" del desktop in `docs/help/` (IT/EN) con figure
+  semigrafiche e **replica** delle note legali generata da `legal/`
+  (`tools/build_help_legal.py`); workflow `.github/workflows/pages.yml`.
+- **Gate accettazione Termini**: `REQUIRE_TERMS_ACCEPTANCE` (default off) +
+  `terms_version` in `POST /jobs` (altrimenti **428**); **casella nella UI**
+  (passo *Output*, link a Termini/Privacy) con invio della versione e promemoria
+  in `localStorage`; `terms_required` in `/meta`.
+- **Hardening**: avviso "traduzione AI" in UI, Dependabot, workflow `security`
+  (pip-audit), label OCI `licenses`, `THIRD_PARTY.md`; **Actions pinnate per SHA**
+  (tag come commento) e **base images del Dockerfile per digest**.
+- **Inventario licenze asset** (`THIRD_PARTY.md`): 34 font (8 famiglie), modello
+  ONNX, cmap, tiktoken; licenza OFL inclusa in `licenses/OFL-1.1.txt`.
+- **BYOK** (Opzione 1): chiave in memoria per-job (mai su DB/log), campo nel
+  frontend (password + occhio, «Ricorda in questo browser», «Dimentica»),
+  **validazione** `POST /api/v1/llm/validate` (chiave, credito, modello),
+  `byok_supported`/`llm_model` in `/meta`; **parità CLI**
+  (`--llm-api-key` / `--llm-api-key-file`). Con `ROLE≠all` → 409.
+
+**Coda di lavoro (backlog)** — aggiornata al 25/09/2026.
+*Stato: servizio locale, **non esposto a terzi**.*
+
+### Prima di esporre il servizio a terzi (bloccanti)
+
+1. ~~**Accettazione Termini in UI**~~ **FATTO (25/09/2026)**: casella nel passo
+   *Output* (con link a Termini/Privacy), invio di `terms_version`, `terms_required`
+   in `/meta`, promemoria in `localStorage`. Il gate resta **spento** di default
+   (`REQUIRE_TERMS_ACCEPTANCE=false`) e si attiva quando esponi.
+2. **Placeholder legali**: sostituire `[data]`, `[email]`, `[URL]` in `legal/*`
+   (servono email di ruolo e URL pubblico).
+3. **Procedura takedown / DSA**: pagina + contatto + runbook di rimozione
+   (notice-and-action).
+4. **Revisione legale** dei testi (AGPL §7, GDPR, DSA, consumer).
+5. **Abilitare GitHub Pages** (Settings → Pages → Source: **GitHub Actions**).
+6. ~~**Riconciliare il modello "gratuito + BYOK"**~~ **FATTO (25/09/2026)**: il
+   **codice commerciale resta** (seam, prezzi, pagamenti), ma i **default sono
+   gratuiti**: `COST_CENTS_PER_PAGE_*` = `0` (anche nel file d'esempio), niente
+   finto valore di chiave in `noesis.env.example`, testi UI aggiornati (LLM: costo
+   a carico dell'utente su OpenRouter).
+7. ~~**Google non ufficiale**~~ **DECISIONE (25/09/2026)**: **nessun interruttore**;
+   il motore `google` resta **sempre disponibile** (rischio accettato).
+
+### Decisioni aperte
+
+8. **Chiave OpenRouter negli installer semplici** (`./noesis install`): (a)
+   continuare a chiederla come fallback; (b) rimandare al campo in UI; (c)
+   chiederla spiegando entrambe le opzioni. *Rimandata.*
+9. **BYOK multi-worker (Opzione 2)**: canale cifrato API↔worker, se si
+   separano i ruoli `api`/`worker`.
+10. **CLA**: il testo c'è, manca il **meccanismo di applicazione** (es. CLA
+    Assistant).
+11. **Entità giuridica + assicurazione** prima di esporre/scalare.
+12. **Verifica IP del datore di lavoro / università**.
+13. **Ricerca di anteriorità** sul marchio "Noesis".
+14. **Libri interi** (rischio accettato): eventuali limiti per-IP.
+
+### Licenze / asset
+
+15. **Go Noto Kurrent** (licenza non dichiarata) e **modello ONNX**
+    (AGPL-3.0 vs Apache-2.0): chiarire o sostituire.
+16. **Note di copyright per-font** accanto al testo OFL (completezza).
+17. **Verifica build Docker** con i digest pinnati (CI al prossimo push).
+
+### Trasparenza / documenti
+
+18. **AI Act**: valutare un metadato nel PDF prodotto (oltre all'avviso in UI).
+19. **Privacy**: cookie/ePrivacy, eventuale Registro (Art. 30) e DPIA.
+
+### Azioni manuali / pubblicazione
+
+20. Creare email di ruolo `legal@` / `privacy@` / `security@`.
+21. **Ruotare** eventuali chiavi storicamente esposte.
+22. Push e **CI verde** (test, pages, security).
+23. **Tag/release** per la corrispondenza versione ↔ sorgente (AGPL §13).
+24. Rigenerare `docs/help/note-legali.html` quando cambiano i documenti legali
+    (in CI è automatico; in locale:
+    `.venv/bin/python tools/build_help_legal.py`).
+
+### Backlog prodotto (fase successiva)
+
+25. Auth / quota / pagamenti (seam già presenti: attivare solo se richiesto).
+26. Multi-nodo `Redis`/`Postgres` (rimandato).
+
+

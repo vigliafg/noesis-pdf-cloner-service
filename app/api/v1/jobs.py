@@ -53,6 +53,16 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
     ctx = get_ctx(request)
     settings = ctx.settings
 
+    # Gate di accettazione dei Termini (attivo solo se REQUIRE_TERMS_ACCEPTANCE=true).
+    if settings.require_terms_acceptance and payload.terms_version != settings.terms_version:
+        raise HTTPException(
+            status_code=428,
+            detail=(
+                "accettazione dei Termini richiesta: invia "
+                f'terms_version="{settings.terms_version}"'
+            ),
+        )
+
     if not ctx.rate_limiter.allow(f"job:{actor.id}"):
         raise HTTPException(
             status_code=429,
@@ -74,19 +84,27 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
     engine = normalize_engine(payload.engine)
     if engine not in ENGINES:
         raise HTTPException(status_code=400, detail=f"motore sconosciuto: {payload.engine}")
-    # Guardia preflight: non accodare un job LLM che non potrebbe tradurre.
-    if (
-        settings.preflight_guard
-        and engine == "llm"
-        and not (
-            settings.openrouter_api_key
-            or os.environ.get("OPENROUTER_API_KEY")
-        )
-    ):
+    # Chiave BYOK fornita dall'utente (mai persistita).
+    user_key = (payload.llm_api_key or "").strip()
+    if user_key and engine == "llm" and settings.role != "all":
         raise HTTPException(
             status_code=409,
-            detail="motore LLM senza chiave OpenRouter: imposta OPENROUTER_API_KEY "
-                   "(vedi /api/v1/health?deep=1)",
+            detail=(
+                "BYOK non disponibile con worker separati (ROLE≠all): "
+                "usa la chiave del server o avvia il servizio in ROLE=all"
+            ),
+        )
+    effective_key = (
+        user_key
+        or settings.openrouter_api_key
+        or os.environ.get("OPENROUTER_API_KEY", "")
+    )
+    # Guardia preflight: non accodare un job LLM che non potrebbe tradurre.
+    if settings.preflight_guard and engine == "llm" and not effective_key:
+        raise HTTPException(
+            status_code=409,
+            detail="motore LLM senza chiave OpenRouter: inserisci la tua chiave "
+                   "(BYOK) o imposta OPENROUTER_API_KEY (vedi /api/v1/health?deep=1)",
         )
     if payload.src_lang not in LANGUAGES:
         raise HTTPException(status_code=400, detail=f"lingua origine sconosciuta: {payload.src_lang}")
@@ -121,9 +139,13 @@ def create_job(payload: JobRequest, request: Request, actor: Actor = Depends(get
         owner_id=actor.id,
     )
     ctx.storage.create_job(job)
+    if user_key:
+        # Chiave tenuta solo in memoria dal runner (ROLE=all) per questo job.
+        ctx.runner.set_job_key(job.job_id, user_key)
     try:
         ctx.queue.submit(job.job_id, job.priority)
     except RuntimeError as exc:
+        ctx.runner.drop_job_key(job.job_id)
         ctx.storage.update_job(job.job_id, state=JobState.error, error=str(exc))
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     METRICS.inc(JOBS_SUBMITTED)

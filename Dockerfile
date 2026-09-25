@@ -10,7 +10,9 @@
 #
 # Vedi docs/DOCKER.md.
 
-FROM python:3.12-slim-bookworm
+# Base pinnata per digest (hardening supply-chain). Aggiorna il digest con
+#   docker buildx imagetools inspect python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e
 
 # ── variabili comuni ──────────────────────────────────────────────────────
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -29,8 +31,10 @@ RUN apt-get update \
       ca-certificates curl libgomp1 libglib2.0-0 tini \
  && rm -rf /var/lib/apt/lists/*
 
-# uv: serve solo in build (per creare i venv e installare le dipendenze)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# uv: serve solo in build (per creare i venv e installare le dipendenze).
+# Pinnato per digest (era `latest`): aggiornalo con
+#   docker buildx imagetools inspect ghcr.io/astral-sh/uv:latest
+COPY --from=ghcr.io/astral-sh/uv:latest@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 /uv /usr/local/bin/uv
 
 # ── utente non-root e cartelle ────────────────────────────────────────────
 ARG APP_UID=1000
@@ -72,7 +76,8 @@ ENV HOST=0.0.0.0 \
 
 LABEL org.opencontainers.image.source="https://github.com/vigliafg/noesis-pdf-cloner-service" \
       org.opencontainers.image.title="noesis-pdf-cloner-service" \
-      org.opencontainers.image.description="Traduzione PDF con layout preservato: server + coda + CLI"
+      org.opencontainers.image.description="Traduzione PDF con layout preservato: server + coda + CLI" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 EXPOSE 18080
 VOLUME ["/data"]

@@ -120,8 +120,37 @@ def build_parser() -> argparse.ArgumentParser:
     # Seam: modalità remota (client dell'API), non ancora implementata.
     parser.add_argument("--server", default=None, help="[seam] URL del servizio remoto")
     parser.add_argument("--api-key", default=None, help="[seam] API key per il servizio remoto")
+    parser.add_argument(
+        "--llm-api-key", default=None,
+        help="chiave OpenRouter per il motore llm (BYOK). ATTENZIONE: appare in "
+             "ps/history; preferisci OPENROUTER_API_KEY o --llm-api-key-file",
+    )
+    parser.add_argument(
+        "--llm-api-key-file", type=Path, default=None,
+        help="file che contiene la chiave OpenRouter (più sicuro del flag)",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
+
+
+def _llm_key_from_args(args) -> str | None:
+    """Chiave BYOK da flag o file (None = usa l'ambiente)."""
+    if args.llm_api_key:
+        print(
+            "avviso: --llm-api-key è visibile in ps/history; preferisci "
+            "OPENROUTER_API_KEY o --llm-api-key-file",
+            file=sys.stderr,
+        )
+        return args.llm_api_key.strip()
+    if getattr(args, "llm_api_key_file", None):
+        try:
+            return Path(args.llm_api_key_file).expanduser().read_text(
+                encoding="utf-8"
+            ).strip()
+        except OSError as exc:
+            print(f"impossibile leggere --llm-api-key-file: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+    return None
 
 
 def _settings_from_args(args) -> Settings:
@@ -137,6 +166,9 @@ def _settings_from_args(args) -> Settings:
         settings.page_concurrency = max(1, args.pages_concurrency)
     if args.max_procs is not None:
         settings.max_engine_procs = max(1, args.max_procs)
+    key = _llm_key_from_args(args)
+    if key:
+        settings.openrouter_api_key = key
     settings.ensure_dirs()
     return settings
 
@@ -341,6 +373,14 @@ def main(argv: list[str] | None = None) -> int:
             for index in range(count):
                 print(f"{index + 1}\t{labels[index]}")
         return 0
+
+    if args.engine == "llm" and not settings.openrouter_api_key:
+        print(
+            "motore llm senza chiave OpenRouter: usa --llm-api-key, "
+            "--llm-api-key-file o la variabile OPENROUTER_API_KEY",
+            file=sys.stderr,
+        )
+        return 2
 
     storage = Storage(settings)
     logger = CliLogger(echo=True, json_path=args.log_json)

@@ -93,10 +93,12 @@ class Settings:
 
     # ── stima tempo/costo (0 = usa i default interni) ───────────────────
     estimate_ms_per_page: dict = field(default_factory=dict)  # engine → ms
-    # Prezzo commerciale per pagina (centesimi). Il motore LLM ha 1 cent/pagina
-    # (sovrascrive l'equazione di costo); google/bing restano gratuiti.
+    # Prezzo commerciale per pagina (centesimi). Default 0 = servizio gratuito:
+    # per il motore LLM la stima mostra il costo *stimato* che l'utente paga sul
+    # proprio account OpenRouter (BYOK). Imposta >0 solo per un'offerta a
+    # pagamento (il codice commerciale resta disponibile).
     cost_cents_per_page: dict = field(
-        default_factory=lambda: {"google": 0, "bing": 0, "llm": 1}
+        default_factory=lambda: {"google": 0, "bing": 0, "llm": 0}
     )
 
     # Modello di costo LLM (Mercury/OpenRouter), prezzi USD per milione di token.
@@ -118,6 +120,12 @@ class Settings:
     feature_payments: bool = False
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
+
+    # ── frontend / documenti legali ─────────────────────────────────────
+    help_url: str = "https://vigliafg.github.io/noesis-pdf-cloner-service/"
+    terms_version: str = "1.0"
+    # Richiede l'accettazione dei Termini (versione corrente) per creare un job.
+    require_terms_acceptance: bool = False
 
     # ── derivati ────────────────────────────────────────────────────────
     def __post_init__(self) -> None:
@@ -213,7 +221,7 @@ class Settings:
                 "bing": _env_int("COST_CENTS_PER_PAGE_BING", 0),
                 "llm": _env_int(
                     "COST_CENTS_PER_PAGE_LLM",
-                    _env_int("COST_CENTS_PER_PAGE_OPENAI", 1),
+                    _env_int("COST_CENTS_PER_PAGE_OPENAI", 0),
                 ),
             },
             llm_price_prompt_per_mtok=_env_float("LLM_PRICE_PROMPT_PER_MTOK", 0.04),
@@ -230,6 +238,12 @@ class Settings:
             feature_payments=_env_bool("FEATURE_PAYMENTS", False),
             stripe_secret_key=_env_str("STRIPE_SECRET_KEY"),
             stripe_webhook_secret=_env_str("STRIPE_WEBHOOK_SECRET"),
+            help_url=_env_str(
+                "HELP_URL",
+                "https://vigliafg.github.io/noesis-pdf-cloner-service/",
+            ),
+            terms_version=_env_str("TERMS_VERSION", "1.0"),
+            require_terms_acceptance=_env_bool("REQUIRE_TERMS_ACCEPTANCE", False),
         )
         from .resources import apply_autosize
 

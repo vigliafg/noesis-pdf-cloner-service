@@ -9,6 +9,11 @@ successiva. Vedi il file LICENSE.
 Il programma è distribuito nella speranza che sia utile, ma SENZA ALCUNA
 GARANZIA. Vedi la AGPL per i dettagli.
 
+Termini aggiuntivi ai sensi della sezione 7 della AGPL-3.0 (conservazione delle
+note, marchio, divieto di misrappresentazione dell'origine, garanzia e
+responsabilità): vedi ADDITIONAL_TERMS.md. Tali termini sono severabili: se una
+clausola non è valida, restano efficaci l'AGPL e le altre clausole.
+
 ── Componenti di terze parti ────────────────────────────────────────────────
 
 Il servizio e l'immagine Docker incorporano, come dipendenze separate, software

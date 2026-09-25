@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} — Noesis PDF Cloner</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="legal-body">
+  <header class="topbar">
+    <a class="brand" href="/">🧬 Noesis PDF Cloner <span class="tag">service</span></a>
+    <nav class="topnav">
+      <a class="btn ghost" href="/terms">Termini d'uso</a>
+      <a class="btn ghost" href="{{ help_url }}" target="_blank" rel="noopener">Guida</a>
+      <a class="btn ghost" href="/">← Home</a>
+    </nav>
+  </header>
+
+  <main class="legal">
+    <div class="legal-lang">
+      <a href="?lang=it" {% if lang == 'it' %}class="on"{% endif %}>Italiano</a>
+      <a href="?lang=en" {% if lang == 'en' %}class="on"{% endif %}>English</a>
+      <span class="legal-version">versione {{ terms_version or '' }}</span>
+    </div>
+    <article class="legal-content">
+      {{ body | safe }}
+    </article>
+    <p class="legal-note">
+      Documento informativo — non costituisce consulenza legale.
+    </p>
+  </main>
+</body>
+</html>

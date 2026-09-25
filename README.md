@@ -10,83 +10,357 @@ Servizio **server** e **CLI headless** della pipeline di
 traduce le pagine scelte **preservandone il layout** e le restituisce in un PDF
 unico o in pagine singole (ZIP).
 
-Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-next)**
-(typesetter BabelDOC) con i tre motori di traduzione:
-
-| Motore | Descrizione |
-|---|---|
-| `google` | catena gratuita (`dict-chrome-ex` → `translate-pa` → `gtx` → Microsoft → LLM) |
-| `bing` | traduttore Bing built-in di pdf2zh_next |
-| `llm` | LLM via OpenRouter (`OPENROUTER_API_KEY`) — usa il percorso "OpenAI-compatibile" (`--openai`) di pdf2zh; alias storico `openai` |
-
 📐 **Documento tecnico delle scelte architetturali (implementate e future):
 [`ARCHITETTURA.md`](ARCHITETTURA.md).**
 
-## Stato
+## Che cos'è, in parole semplici
 
-**Funzionante** (v0.1.0). Verificato end-to-end su un PDF reale (`ha22.pdf`,
-4.132 pagine): upload, anteprima, stima, coda, traduzione, download — sia da
-**server** sia da **CLI**. Motore `pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`.
-Test: **223 passed** (`pytest`, motore fittizio, nessuna rete). Disponibile anche
-come **immagine Docker multi-arch** (vedi [Docker](#docker-immagine-pronta-multi-piattaforma)).
+Noesis PDF Cloner prende un PDF e ne **traduce in un'altra lingua le pagine che
+scegli**, senza stravolgere l'impaginazione: testo, immagini, tabelle e numeri di
+pagina restano al loro posto, cambia solo la lingua. Alla fine ottieni un **PDF
+tradotto** da scaricare oppure un **file ZIP** con le pagine tradotte una per una.
 
-## Architettura
+Si usa in due modi:
 
-```
-utente ─► FastAPI /api/v1 ─┬─ Documenti: upload, thumbnail, /PageLabels
-                           └─ Job ─► coda a priorità (SQLite + worker thread)
-                                        └─ pipeline.run_job
-                                             ├─ blocchi di 100 pagine
-                                             ├─ engine → pdf2zh_next (subprocess, .venv2)
-                                             └─ cache versionata (split / tradotti)
-CLI (noesis-cloner) ──────────────────────┘ stessa pipeline e stessa cache
-```
+- dal **browser** (interfaccia web): carichi il PDF, scegli le pagine, la lingua
+  e il motore di traduzione, premi il pulsante e scarichi il risultato;
+- da **riga di comando** (CLI): per lavorare su molti PDF in blocco, anche senza
+  aprire il browser.
 
-## Caratteristiche
+> Questa è la versione **server + CLI**, pensata per girare su una macchina
+> (anche in LAN) e per l'uso da terminale/automazione. La versione **desktop**,
+> con interfaccia grafica dedicata, è un progetto separato:
+> [noesis-pdf-cloner](https://github.com/vigliafg/noesis-pdf-cloner).
 
-- **Frontend web**: upload drag&drop, selezione pagine (singola / intervallo /
-  lista `3,5,10-12`), lingua origine e destinazione, motore, nome del PDF,
-  e per gli intervalli **PDF unico** oppure **ZIP di pagine singole**.
-- **Anteprima anti-errore**: miniatura della pagina (o della prima e ultima del
-  range) con **numero fisico + etichetta stampata** (`/PageLabels`), per non
-  confondere le due numerazioni dei PDF.
-- **Log di esecuzione** per ogni job (JSONL) e **streaming live via SSE**.
-- **Stima prima dell'avvio**: tempo (storico per motore + pagine in cache) e
-  costo stimati, mostrati nel frontend e via `POST /jobs/estimate`.
-- **Libri interi**: le pagine sono elaborate a blocchi da 100 (`MAX_PAGES_PER_BLOCK`).
-- **Coda a priorità** e **multithreading**: pool di worker + parallelismo per
-  pagina + limite globale sui processi `pdf2zh_next`.
-- **Si adatta alla macchina (autosizing)** e **scala**: coda condivisa su DB,
-  ruoli `api`/`worker` separabili, guardie RAM/disco. In **container** l'autosize
-  legge i **limiti cgroup**.
-- **Docker multi-arch** (`linux/amd64`, `linux/arm64`) su GHCR, **out-of-the-box**
-  (motore e asset inclusi): Linux nativo, Windows/macOS via Docker Desktop.
-- **CLI headless** con batch multi-PDF e barra `tqdm`, senza avviare il server.
-- **Cache condivisa e versionata** (server e CLI riusano le stesse traduzioni).
-- **Predisposto per il commerciale**: seam per autenticazione (Supabase/OIDC/
-  reverse proxy), quote/usage e pagamenti Stripe; tabelle DB già presenti.
+Motore: **[pdf2zh_next v2](https://github.com/PDFMathTranslate/PDFMathTranslate-next)**
+(typesetter BabelDOC) con i tre motori di traduzione:
 
-## Installazione (consigliata)
+| Motore | Descrizione | Costo |
+|---|---|---|
+| `google` | catena gratuita (`dict-chrome-ex` → `translate-pa` → `gtx` → Microsoft → LLM) | gratuito |
+| `bing` | traduttore Bing built-in di pdf2zh_next | gratuito |
+| `llm` | LLM via OpenRouter (`OPENROUTER_API_KEY`) — usa il percorso "OpenAI-compatibile" (`--openai`) di pdf2zh; alias storico `openai` | a consumo |
 
-Un solo comando, multipiattaforma (**Linux · macOS · WSL · Windows nativo**):
+**In una frase**: carichi un PDF, scegli le pagine, premi "Traduci" e scarichi il
+PDF tradotto — con l'impaginazione dell'originale.
+
+## Funzionalità principali (in breve)
+
+### Cosa fa
+
+- **Traduce conservando il layout**: il PDF tradotto mantiene impaginazione,
+  immagini, tabelle e note dell'originale; cambia solo la lingua.
+- **Selezione pagine flessibile**: una pagina (`7`), un intervallo (`100-103`),
+  una lista (`3,5,10-12`) oppure **tutto il libro** (`all`).
+- **Due formati di uscita**: un **PDF unico** con le pagine tradotte, oppure uno
+  **ZIP** con le pagine tradotte singolarmente.
+- **Interfaccia web** con caricamento drag&drop **e CLI** per l'uso in blocco.
+
+### Come ti evita gli errori (punti chiave)
+
+- **Anteprima anti-errore**: prima di tradurre vedi la miniatura della pagina e,
+  accanto, **numero fisico + numero stampato** sul documento (`/PageLabels`). Nei
+  PDF le due numerazioni spesso non coincidono: così scegli la pagina giusta.
+- **Stima prima dell'avvio**: tempo e costo (per il motore `llm`) calcolati
+  **prima** di partire, mostrati nel browser.
+- **Cache intelligente**: le pagine già tradotte non vengono rifatte; ripetere
+  un lavoro è praticamente istantaneo.
+
+### Libri grandi e robustezza
+
+- **Libri interi**: le pagine sono lavorate a **blocchi da 100**, quindi anche un
+  volume di migliaia di pagine procede senza "bloccarsi".
+- **Coda a priorità**: puoi accodare più lavori e farli eseguire in parallelo.
+- **Log completi e avanzamento in tempo reale** nel browser (streaming live).
+
+### Si adatta alla macchina
+
+- **Autosizing**: all'avvio il servizio misura CPU, RAM e disco e regola da solo
+  quanto lavoro parallelizzare. In Docker legge i limiti del container.
+- **Guardie RAM/disco**: se la macchina è sotto pressione, i nuovi lavori vengono
+  temporaneamente rifiutati invece di far crollare il servizio.
+- **Scala**: puoi separare "chi riceve i lavori" (API) da "chi li esegue"
+  (worker) e aggiungere worker, anche su più macchine.
+
+### Distribuzione
+
+- **Docker multi-arch** (`linux/amd64`, `linux/arm64`) su GHCR, **tutto incluso**
+  (motore e asset): si avvia senza installare nulla. Gira su Linux, Windows e
+  macOS.
+- **CLI headless** con batch multi-PDF e barra di avanzamento, senza server.
+- **Cache condivisa e versionata**: server e CLI riusano le stesse traduzioni.
+- **Predisposto per il commerciale** (autenticazione, quote, pagamenti): tabelle e
+  punti di innesto già presenti, ma **disattivati** di default.
+
+## Requisiti
+
+Non serve saper programmare: si tratta solo di **copiare e incollare** pochi
+comandi nel terminale, seguendo i passi indicati.
+
+| Cosa serve | Per quali metodi | Note |
+|---|---|---|
+| Accesso a **Internet** | tutti | la traduzione contatta servizi online (Google/Bing/OpenRouter) |
+| **Docker Desktop** o **Docker Engine** | Metodo C | il più semplice: non installa nulla sul sistema operativo |
+| **git** + terminale | Metodi A, B, E | per scaricare il codice e installare |
+| **PowerShell** | Metodo B | per l'installazione su Windows nativo |
+| Circa **2 GB** di spazio libero | tutti | programma + modelli del motore |
+
+> **Non servono privilegi di amministratore**, tranne se vuoi aprire la porta nel
+> firewall per usare il servizio dalla **LAN** (`--open-firewall`).
+
+## Quale installazione scegliere?
+
+| Situazione | Metodo consigliato |
+|---|---|
+| **Windows/macOS** e vuoi il minimo sforzo | **Metodo C — Docker** |
+| **Linux/macOS/WSL** con terminale | **Metodo A — Installer automatico** |
+| **Windows** senza Docker | **Metodo B — Windows nativo** |
+| Sviluppatore / vuoi controllare ogni pezzo | **Metodo D — Manuale** |
+| Macchina **senza Internet** | **Metodo E — Bundle offline** |
+
+Tutti i metodi installano la **stessa applicazione**: cambia solo il modo in cui
+arriva sulla macchina. Alla fine il servizio risponde su
+<http://127.0.0.1:18080> (o `http://localhost:18080`).
+
+## Installazione passo passo
+
+> La **chiave OpenRouter** è **opzionale**: serve solo al motore `llm`. Senza
+> chiave funzionano subito i motori gratuiti `google` e `bing`. La prima
+> installazione può richiedere **qualche minuto** (scarica dipendenze e modelli).
+
+### Metodo A — Installer automatico (Linux · macOS · WSL)
+
+1. **Apri il terminale.**
+
+2. **Assicurati che `git` sia installato.** Se non lo è:
+
+   ```bash
+   # Ubuntu / Debian / Mint
+   sudo apt update && sudo apt install -y git
+
+   # Fedora / RHEL
+   sudo dnf install -y git
+
+   # macOS (apre la finestra degli strumenti da sviluppatore)
+   xcode-select --install
+   ```
+
+3. **Scarica il programma** (copia e incolla, un comando per riga):
+
+   ```bash
+   git clone https://github.com/vigliafg/noesis-pdf-cloner-service
+   cd noesis-pdf-cloner-service
+   ```
+
+4. **Avvia l'installazione:**
+
+   ```bash
+   ./install.sh
+   ```
+
+   Lo script crea l'ambiente Python, installa il motore di traduzione, scrive la
+   configurazione, installa il **servizio con avvio automatico**, chiede la
+   chiave OpenRouter (puoi premere `Invio` per saltare) e verifica che tutto
+   funzioni.
+
+5. **Attendi il messaggio finale.** A fine installazione vedrai un **report di
+   salute**, i link locali e LAN, e l'indicazione che la porta 18080 è
+   raggiungibile.
+
+6. **Apri il browser** su <http://127.0.0.1:18080> (di solito si apre da solo).
+
+**Uso in LAN** (altre persone sulla stessa rete): aggiungi la regola firewall
+limitata alla sola sottorete locale:
 
 ```bash
-git clone https://github.com/vigliafg/noesis-pdf-cloner-service
-cd noesis-pdf-cloner-service
-./install.sh
+./install.sh --open-firewall
 ```
 
-La console `noesis` crea i venv e il motore, scrive la configurazione, installa
-il servizio (avvio automatico), chiede la chiave OpenRouter (opzionale) e la
-verifica, attende che il servizio risponda sulla porta e stampa gli URL (locale +
-LAN). A fine installazione stampa il **report completo di salute/preflight** e i
-**link cliccabili**. Per la LAN, `--open-firewall` apre la porta limitandola alla
-**sottorete locale**. Guida completa: [`docs/INSTALL.md`](docs/INSTALL.md).
+**Se preferisci non installare il servizio di avvio automatico** (solo setup):
 
-Cruscotto quotidiano: `./noesis status` · `logs` · `doctor` · `open` ·
-`start`/`stop`/`restart` · `bundle` (offline) · `update` · `uninstall`.
+```bash
+./install.sh --no-service      # poi avvii tu con ./noesis start
+```
 
-### Docker (immagine pronta, multi-piattaforma)
+**Scorciatoia "bootstrap"** (scarica e installa in un colpo solo, nella cartella
+`~/noesis-pdf-cloner-service`):
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/vigliafg/noesis-pdf-cloner-service/main/bootstrap.sh | bash
+```
+
+### Metodo B — Windows nativo (senza Docker)
+
+1. **Installa `git`** da <https://git-scm.com/download/win> (opzioni predefinite).
+
+2. **Apri PowerShell** e scarica il programma:
+
+   ```powershell
+   git clone https://github.com/vigliafg/noesis-pdf-cloner-service
+   cd noesis-pdf-cloner-service
+   ```
+
+3. **Avvia l'installazione:**
+
+   ```powershell
+   .\install.ps1
+   ```
+
+   > Se compare l'errore *"running scripts is disabled on this system"*, esegui:
+   > `powershell -ExecutionPolicy Bypass -File .\install.ps1`
+
+   In alternativa puoi usare `.\noesis.cmd install` (anche da `cmd.exe`).
+
+4. **Attendi il report finale** e **apri il browser** su
+   <http://localhost:18080>.
+
+Per l'uso in LAN: `.\install.ps1 -open-firewall` (può richiedere il consenso
+amministratore/`UAC`). Per l'avvio automatico **prima del login** (senza accedere
+all'utente): `.\noesis.cmd install --mode system` in PowerShell amministratore.
+
+**Alternativa consigliata su Windows: WSL2.** Installa WSL2, apri la distro Linux
+e segui il **Metodo A** (`./install.sh`).
+
+**Bootstrap Windows** (scarica e installa in un colpo solo):
+
+```powershell
+irm https://raw.githubusercontent.com/vigliafg/noesis-pdf-cloner-service/main/bootstrap.ps1 | iex
+```
+
+### Metodo C — Docker (Windows · macOS · Linux)
+
+Il modo più semplice e senza installazioni sul sistema operativo. Serve **Docker
+Desktop** (Windows/macOS) oppure **Docker Engine** (Linux), con accesso a
+Internet.
+
+1. **Installa Docker Desktop** da <https://www.docker.com/products/docker-desktop/>
+   (su Windows abilita il backend **WSL2**).
+
+2. **Apri il terminale** (PowerShell su Windows) e digita:
+
+   ```bash
+   docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
+     ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+   ```
+
+3. **Apri il browser** su <http://localhost:18080>.
+
+4. Per abilitare il motore **`llm`** aggiungi la chiave (i motori gratuiti
+   `google`/`bing` non la richiedono):
+
+   ```bash
+   docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
+     -e OPENROUTER_API_KEY="sk-or-..." \
+     ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+   ```
+
+Su Windows PowerShell sostituisci il carattere `\` a fine riga con il backtick
+`` ` ``. I dettagli (compose, persistenza, scalabilità, problemi comuni) sono
+nella sezione **[Docker in dettaglio](#docker-in-dettaglio)**.
+
+### Metodo D — Manuale, senza servizio (avanzato)
+
+Serve **Python 3.12** e [uv](https://docs.astral.sh/uv/). Utile per sviluppo o
+per eseguire il server in primo piano senza installare nulla come servizio.
+
+```bash
+./setup_engine.sh     # crea l'ambiente del motore (.venv2) e installa pdf2zh_next
+./run.sh              # avvia il server su http://127.0.0.1:18080
+```
+
+Con `ROLE=all` (default) il server **deve** girare con un solo processo uvicorn:
+in quel processo coda e semafori del motore sono locali e il parallelismo è
+interno (thread). Per separare API e worker vedi **Deployment scalabile** più
+sotto.
+
+Installando il pacchetto (`pip install -e .`) è disponibile anche il comando
+`noesis-cloner`.
+
+### Metodo E — Macchina senza Internet (bundle offline)
+
+1. Su una macchina **già installata**, crea il pacchetto:
+
+   ```bash
+   ./noesis bundle      # crea dist/noesis-bundle-<os>-<arch>.tar.gz
+   ```
+
+2. Copia il file sulla macchina di destinazione (con il repo clonato) e installa:
+
+   ```bash
+   ./noesis install --bundle /percorso/noesis-bundle-<os>-<arch>.tar.gz
+   ```
+
+Il bundle contiene i **pacchetti** (servizio + motore) e i **modelli**: non serve
+Internet per installare. Serve **un bundle per piattaforma** (Linux x86_64 ≠
+macOS arm64 ≠ Windows).
+
+## Primo utilizzo (dal browser)
+
+1. Apri <http://127.0.0.1:18080>.
+2. **Trascina il PDF** nella pagina (o selezionalo dal pulsante di caricamento).
+3. **Scegli le pagine**: una pagina, un intervallo (`100-103`) o una lista
+   (`3,5,10-12`); per un libro intero usa `all`.
+4. Controlla l'**anteprima**: vicino alla miniatura vedi sia il **numero fisico**
+   sia il **numero stampato** sul documento. Se non coincidono, correggi la
+   selezione.
+5. Scegli la **lingua di partenza**, la **lingua di destinazione** e il **motore**
+   (`google` o `bing` sono gratuiti; `llm` richiede la chiave).
+6. Scegli il **formato di uscita**: **PDF unico** oppure **ZIP di pagine
+   singole**.
+7. Facoltativo: guarda la **stima** di tempo e costo.
+8. Premi **Traduci** e segui l'avanzamento in tempo reale; a fine lavoro
+   **scarica** il risultato.
+
+## Gestione quotidiana (console `noesis`)
+
+Dopo l'installazione, tutte le operazioni si fanno con un solo comando:
+
+| Comando | Cosa fa |
+|---|---|
+| `./noesis install` | installa venv, motore, configurazione e servizio |
+| `./noesis start` / `stop` / `restart` | avvia / ferma / riavvia in background |
+| `./noesis status` | stato del processo e del servizio |
+| `./noesis logs -n 100` | mostra le ultime righe di log |
+| `./noesis doctor` | diagnostica completa dell'installazione |
+| `./noesis open` | apre il frontend nel browser |
+| `./noesis update` | aggiorna codice e dipendenze |
+| `./noesis uninstall` | disinstalla (scelta interattiva di cosa rimuovere) |
+
+Su Windows usa `.\noesis.cmd` al posto di `./noesis`.
+
+## Aggiornare
+
+```bash
+./noesis update      # git pull + aggiornamento dipendenze
+```
+
+Con Docker:
+
+```bash
+docker pull ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+docker compose up -d            # ricrea con la nuova immagine (i dati restano)
+```
+
+## Disinstallare
+
+```bash
+./uninstall.sh                 # (o ./noesis uninstall) scelta interattiva di cosa rimuovere
+./noesis uninstall --dry-run   # mostra il piano con le dimensioni, senza toccare nulla
+./noesis uninstall --data      # rimuove il servizio e i dati
+./noesis uninstall --all -y    # nessuna traccia del servizio (venv + motore + dati + cache)
+```
+
+Senza argomenti, su terminale, `uninstall` mostra il menu **"Cosa rimuovere"**
+(venv del servizio, motore `.venv2`, cache BabelDOC, dati, cache esterna) con le
+dimensioni e chiede conferma; in un contesto non interattivo (pipe/CI) o con
+`--json`/`--yes` è **conservativo** e rimuove solo il servizio. `--all` è
+l'equivalente di "nessuna traccia". La **cache condivisa di `uv`/Python gestiti
+non viene mai toccata** (non è nostra); il repository del codice non viene mai
+rimosso.
+
+## Docker in dettaglio
+
+### Immagine pronta (multi-piattaforma)
 
 Alternativa all'installazione: un'**immagine multi-arch** (`linux/amd64`,
 `linux/arm64`) pubblicata su GitHub Container Registry. Contiene **tutto** — i due
@@ -333,38 +607,7 @@ curl -s http://localhost:18080/api/v1/health
 
 Guida estesa (compose, build locale, pubblicazione su GHCR): [`docs/DOCKER.md`](docs/DOCKER.md).
 
-### Disinstallazione
-
-```bash
-./uninstall.sh                 # (o ./noesis uninstall) scelta interattiva di cosa rimuovere
-./noesis uninstall --dry-run   # mostra il piano con le dimensioni, senza toccare nulla
-./noesis uninstall --data      # rimuove il servizio e i dati
-./noesis uninstall --all -y    # nessuna traccia del servizio (venv + motore + dati + cache)
-```
-
-Senza argomenti, su terminale, `uninstall` mostra il menu **"Cosa rimuovere"**
-(venv del servizio, motore `.venv2`, cache BabelDOC, dati, cache esterna) con le
-dimensioni e chiede conferma; in un contesto non interattivo (pipe/CI) o con
-`--json`/`--yes` è **conservativo** e rimuove solo il servizio. `--all` è
-l'equivalente di "nessuna traccia". La **cache condivisa di `uv`/Python gestiti
-non viene mai toccata** (non è nostra); il repository del codice non viene mai
-rimosso.
-
-### Avvio manuale (senza servizio)
-
-Serve **Python 3.12** e [uv](https://docs.astral.sh/uv/).
-
-```bash
-./setup_engine.sh     # crea .venv2 e installa pdf2zh_next (motore)
-./run.sh              # avvia il server su http://127.0.0.1:18080
-```
-
-Con `ROLE=all` (default di `run.sh`) il server **deve** girare con un solo
-processo uvicorn (`--workers 1`): in quel processo coda e semafori del motore
-sono locali e il parallelismo è interno (thread). Con la coda su **DB**
-(predefinita) puoi invece separare API e worker — vedi "Scalabilità" più sotto.
-
-### Deployment scalabile (API + worker)
+## Deployment scalabile (API + worker)
 
 ```bash
 ROLE=api ./run-api.sh                 # solo API: accoda i job (1..N processi)
@@ -375,7 +618,7 @@ Con `ROLE=api` l'API non esegue job: i **worker** li reclamano dalla coda
 condivisa su SQLite (`DATA_DIR` comune). File systemd/nginx in
 [`deploy/`](deploy/README.md).
 
-### CLI headless (senza server)
+## CLI headless (senza server)
 
 ```bash
 ./run-cli.sh pdfs/ha22.pdf -p 100-103 --src en --dst it --engine google \
@@ -406,11 +649,33 @@ I **PDF di test** stanno in `pdfs/` (non versionati: vedi `pdfs/README.md`).
 Opzioni principali: `-p/--pages` (`all`, `7`, `100-103`, `3,5,10-12`), `--src`,
 `--dst`, `--engine`, `-o/--output`, `--out-dir`, `--range-mode merged|single`,
 `--pages-concurrency`, `--max-procs`, `--workers`, `--cache-dir`, `--force`,
-`--log-json`, `-v`, `--list-langs`, `--list-engines`, `--list-pages`.
+`--log-json`, `-v`, `--list-langs`, `--list-engines`, `--list-pages`,
+`--llm-api-key` / `--llm-api-key-file` (BYOK per il motore `llm`; preferisci la
+variabile `OPENROUTER_API_KEY`).
 Exit code: `0` ok, `1` fallimenti parziali, `2` errore fatale.
 
 Installando il pacchetto (`pip install -e .`) è disponibile anche il comando
 `noesis-cloner`.
+
+## Stato del progetto
+
+**Funzionante** (v0.1.0). Verificato end-to-end su un PDF reale (`ha22.pdf`,
+4.132 pagine): upload, anteprima, stima, coda, traduzione, download — sia da
+**server** sia da **CLI**. Motore `pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`.
+Test: **223 passed** (`pytest`, motore fittizio, nessuna rete). Disponibile anche
+come **immagine Docker multi-arch**.
+
+## Architettura
+
+```
+utente ─► FastAPI /api/v1 ─┬─ Documenti: upload, thumbnail, /PageLabels
+                           └─ Job ─► coda a priorità (SQLite + worker thread)
+                                        └─ pipeline.run_job
+                                             ├─ blocchi di 100 pagine
+                                             ├─ engine → pdf2zh_next (subprocess, .venv2)
+                                             └─ cache versionata (split / tradotti)
+CLI (noesis-cloner) ──────────────────────┘ stessa pipeline e stessa cache
+```
 
 ## API
 
@@ -510,6 +775,12 @@ Subito dopo verifica **chiave, credito e modello** (stessi check di
 `OPENROUTER_API_KEY` in `noesis.env` (o nell'ambiente) e riavvia con
 `./noesis restart`.
 
+> La cartella dati dipende dal metodo di installazione: con la console è quella
+> standard dell'OS (Linux/WSL `~/.local/share/noesis-pdf-cloner-service`, macOS
+> `~/Library/Application Support/noesis-pdf-cloner-service`, Windows
+> `%LOCALAPPDATA%\noesis-pdf-cloner-service`); con la CLI/avvio manuale è
+> `./data` se non diversamente indicato.
+
 | Variabile | Default | Descrizione |
 |---|---|---|
 | `HOST` / `PORT` | `127.0.0.1` / `18080` | bind del server |
@@ -530,7 +801,7 @@ Subito dopo verifica **chiave, credito e modello** (stessi check di
 | `MAX_PAGES_PER_BLOCK` | `100` | pagine elaborate per blocco (il job può coprire l'intero libro) |
 | `MAX_PAGES_TOTAL` | `5000` | pagine massime richiedibili in un job |
 | `ESTIMATE_MS_PER_PAGE_GOOGLE` / `_BING` / `_LLM` | `0` | override stima ms/pagina (`0` = storico/default; alias `_OPENAI`) |
-| `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_LLM` | `0` / `0` / `1` | prezzo per pagina in centesimi (LLM: 1 = commerciale; 0 = usa l'equazione; alias `_OPENAI`) |
+| `COST_CENTS_PER_PAGE_GOOGLE` / `_BING` / `_LLM` | `0` / `0` / `0` | prezzo commerciale per pagina in centesimi (default `0` = gratuito: per LLM la stima mostra il costo stimato a carico dell'utente su OpenRouter; alias `_OPENAI`) |
 | `LLM_PRICE_PROMPT_PER_MTOK` | `0.04` | prezzo prompt LLM (USD per milione di token) |
 | `LLM_PRICE_COMPLETION_PER_MTOK` | `0.15` | prezzo completion LLM (USD per milione di token) |
 | `LLM_OVERHEAD_FACTOR` | `13.3` | fattore overhead dei prompt/chunk (calibrato) |
@@ -547,6 +818,9 @@ Subito dopo verifica **chiave, credito e modello** (stessi check di
 | `TRUSTED_PROXY_HEADERS` | `false` | fidati degli header del reverse proxy |
 | `QUOTA_ENABLED` / `FEATURE_OCR` / `FEATURE_PAYMENTS` | `false` | seam commerciali |
 | `RATE_LIMIT_PER_MINUTE` | `120` | rate limit per attore |
+| `HELP_URL` | GitHub Pages del repo | URL del pulsante "Guida" in home |
+| `TERMS_VERSION` | `1.0` | versione dei Termini (gate + `/meta`) |
+| `REQUIRE_TERMS_ACCEPTANCE` | `false` | richiede l'accettazione dei Termini per creare un job (attivare quando esponi) |
 
 ## Test
 
@@ -597,3 +871,20 @@ app/
   (`FEATURE_OCR`) le segnala nel log.
 - Il frontend funziona anche senza PDF.js (anteprima via server); PDF.js locale
   è opzionale (`app/static/vendor/pdfjs/`).
+
+## Licenza
+
+Il progetto è distribuito con licenza **AGPL-3.0** (vedi [`LICENSE`](LICENSE)).
+L'immagine Docker incorpora componenti AGPL-3.0 (pdf2zh_next, BabelDOC, PyMuPDF):
+vedi [`NOTICE`](NOTICE) e [`THIRD_PARTY.md`](THIRD_PARTY.md).
+
+Termini aggiuntivi ai sensi della sezione 7 della AGPL:
+[`ADDITIONAL_TERMS.md`](ADDITIONAL_TERMS.md). Uso del nome e del marchio:
+[`TRADEMARK.md`](TRADEMARK.md). Contributi: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+e [`CLA.md`](CLA.md). Vulnerabilità: [`SECURITY.md`](SECURITY.md).
+
+Documenti del **servizio** (in [`legal/`](legal/)): Termini d'uso, Privacy,
+Esclusione di garanzia e Uso accettabile, disponibili anche dalle pagine del
+servizio (`/terms`, `/privacy`, `/disclaimer`, `/acceptable-use`) e nella guida
+pubblicata su GitHub Pages (sezione «Note legali»).
+

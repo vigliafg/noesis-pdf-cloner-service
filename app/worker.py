@@ -30,8 +30,27 @@ class JobRunner:
     def __init__(self, storage: Storage, settings: Settings) -> None:
         self.storage = storage
         self.settings = settings
+        # Chiavi BYOK per job, tenute SOLO in memoria e rimosse all'uso. Non
+        # vengono mai scritte su DB/log. Funzionano quando API e worker sono lo
+        # stesso processo (ROLE=all): per worker separati l'API rifiuta il BYOK.
+        self._llm_keys: dict[str, str] = {}
+        self._llm_keys_lock = threading.Lock()
+
+    def set_job_key(self, job_id: str, api_key: str) -> None:
+        with self._llm_keys_lock:
+            self._llm_keys[job_id] = api_key
+
+    def take_job_key(self, job_id: str) -> str:
+        with self._llm_keys_lock:
+            return self._llm_keys.pop(job_id, "")
+
+    def drop_job_key(self, job_id: str) -> None:
+        with self._llm_keys_lock:
+            self._llm_keys.pop(job_id, None)
 
     def engine_for(self, job: JobRecord) -> CloneEngine:
+        # Chiave BYOK del job (se presente) oppure chiave del server.
+        api_key = self.take_job_key(job.job_id) or self.settings.openrouter_api_key
         return CloneEngine(
             self.settings.cache_root,
             pdf2zh_bin=self.settings.pdf2zh_bin,
@@ -40,7 +59,7 @@ class JobRunner:
             cache_version=self.settings.engine_cache_version,
             llm_model=self.settings.llm_model,
             llm_base_url=self.settings.llm_base_url,
-            api_key=self.settings.openrouter_api_key,
+            api_key=api_key,
         )
 
     def run(self, job: JobRecord, cancel_event: threading.Event):

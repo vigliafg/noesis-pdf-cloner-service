@@ -32,4 +32,9 @@ def get_meta(request: Request) -> MetaOut:
             "payments": settings.feature_payments,
             "auth_mode": settings.auth_mode,
         },
+        terms_version=settings.terms_version,
+        help_url=settings.help_url,
+        byok_supported=settings.role == "all",
+        llm_model=settings.llm_model,
+        terms_required=settings.require_terms_acceptance,
     )

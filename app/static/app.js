@@ -162,7 +162,7 @@ async function loadMeta() {
     radio.name = "engine";
     radio.value = code;
     radio.checked = code === "google";
-    radio.addEventListener("change", () => { markEngine(code); refreshEstimate(); });
+    radio.addEventListener("change", () => { markEngine(code); updateEngineUi(); refreshEstimate(); });
     const info = document.createElement("div");
     const title = document.createElement("b");
     title.textContent = engineLabel(code);
@@ -171,6 +171,8 @@ async function loadMeta() {
     box.append(card);
   }
   markEngine("google");
+  initApiKey();
+  initTerms();
 
   const node = $("service-meta");
   const version = node.dataset.version || node.textContent.replace(/^v/, "").trim();
@@ -190,6 +192,128 @@ function markEngine(code) {
 function selectedEngine() {
   const radio = document.querySelector('input[name="engine"]:checked');
   return radio ? radio.value : "google";
+}
+
+/* ── chiave OpenRouter (BYOK) ──────────────────────────────────────────── */
+
+const LLM_KEY_STORE = "noesis_llm_key";
+
+function llmKeyValue() {
+  const input = $("llm-key");
+  return input ? input.value.trim() : "";
+}
+
+function updateEngineUi() {
+  const box = $("llm-key-box");
+  if (!box) return;
+  box.classList.toggle("hidden", selectedEngine() !== "llm");
+  const modelNode = $("llm-model");
+  if (modelNode && state.meta) {
+    modelNode.textContent = state.meta.llm_model ? `(${state.meta.llm_model})` : "";
+  }
+}
+
+function saveKey(key) {
+  try { if (key) localStorage.setItem(LLM_KEY_STORE, key); } catch { /* storage non disponibile */ }
+}
+
+function clearStoredKey() {
+  try { localStorage.removeItem(LLM_KEY_STORE); } catch { /* storage non disponibile */ }
+}
+
+function setKeyStatus(text, kind) {
+  const node = $("llm-key-status");
+  if (!node) return;
+  node.textContent = text || "";
+  node.className = "hint " + (kind || "");
+}
+
+const KEY_ISSUE_LABELS = {
+  invalid_key: "chiave non valida",
+  no_credits: "credito esaurito",
+  credits_low: "credito in esaurimento",
+  model_not_found: "modello non disponibile",
+  network: "rete non raggiungibile",
+  rate_limited: "troppe richieste, riprova",
+  forbidden: "accesso negato",
+};
+
+async function validateKey() {
+  const key = llmKeyValue();
+  if (!key) return setKeyStatus("Inserisci prima la chiave.", "fail");
+  setKeyStatus("Verifica in corso…", "");
+  let response;
+  try {
+    response = await fetch(`${API}/llm/validate`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: key }),
+    });
+  } catch {
+    return setKeyStatus("Errore di rete durante la verifica.", "fail");
+  }
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    return setKeyStatus(`Verifica non riuscita: ${detail.detail || response.status}`, "fail");
+  }
+  const res = await response.json();
+  const issues = [res.key_valid, res.credits, res.model]
+    .filter((c) => c.status === "fail" || c.status === "warn")
+    .map((c) => KEY_ISSUE_LABELS[c.code] || c.code || c.status);
+  if (res.status === "ok") {
+    setKeyStatus(`Chiave e modello OK ✓ (${res.model_name})`, "ok");
+  } else {
+    const kind = res.status === "warn" ? "warn" : "fail";
+    const prefix = res.status === "warn" ? "Attenzione: " : "Errore: ";
+    setKeyStatus(`${prefix}${issues.join(", ") || "controlla i dati"} (${res.model_name})`, kind);
+  }
+}
+
+function initApiKey() {
+  const input = $("llm-key");
+  if (!input) return;
+  try {
+    const saved = localStorage.getItem(LLM_KEY_STORE);
+    if (saved) { input.value = saved; $("llm-remember").checked = true; }
+  } catch { /* storage non disponibile */ }
+  input.addEventListener("input", () => setKeyStatus(""));
+  $("llm-key-reveal").addEventListener("click", () => {
+    input.type = input.type === "password" ? "text" : "password";
+  });
+  $("llm-remember").addEventListener("change", () => {
+    if ($("llm-remember").checked) saveKey(llmKeyValue());
+    else clearStoredKey();
+  });
+  $("llm-key-forget").addEventListener("click", () => {
+    input.value = "";
+    clearStoredKey();
+    $("llm-remember").checked = false;
+    setKeyStatus("Chiave dimenticata.", "");
+  });
+  $("llm-key-validate").addEventListener("click", validateKey);
+  updateEngineUi();
+}
+
+/* ── accettazione dei Termini ─────────────────────────────────────────── */
+
+const TERMS_STORE = "noesis_terms_version";
+
+function initTerms() {
+  const box = $("accept-terms");
+  const label = $("terms-box");
+  if (!box || !label || !state.meta) return;
+  // Se il server richiede l'accettazione, evidenzia la casella.
+  label.classList.toggle("required", !!state.meta.terms_required);
+  try {
+    if (localStorage.getItem(TERMS_STORE) === state.meta.terms_version) {
+      box.checked = true;
+    }
+  } catch { /* storage non disponibile */ }
+  box.addEventListener("change", () => {
+    try {
+      if (box.checked) localStorage.setItem(TERMS_STORE, state.meta.terms_version);
+      else localStorage.removeItem(TERMS_STORE);
+    } catch { /* storage non disponibile */ }
+  });
 }
 
 /* ── upload ────────────────────────────────────────────────────────────── */
@@ -280,6 +404,9 @@ function wizardNext() {
   }
   if (step === 2 && $("dst-lang").value === "auto") return toast("Scegli una lingua di destinazione");
   if (step === 3 && !document.querySelector('input[name="engine"]:checked')) return toast("Scegli un motore");
+  if (step === 3 && selectedEngine() === "llm" && !llmKeyValue()) {
+    return toast("Inserisci la chiave OpenRouter (motore LLM)");
+  }
   if (step < STEPS.length - 1) return showStep(step + 1);
   return submitJob();
 }
@@ -346,13 +473,15 @@ async function refreshEstimate() {
       return;
     }
     const est = await response.json();
+    const isLlm = selectedEngine() === "llm";
     const cost = est.cost_cents > 0
       ? `${(est.cost_cents / 100).toFixed(4)} ${est.currency}`
-      : "gratis / non configurato";
+      : "nessun costo";
+    const costNote = isLlm && est.cost_cents > 0 ? " (sul tuo account OpenRouter)" : "";
     box.textContent =
       `Da tradurre: ${est.pages_to_translate} di ${est.pages_total} · ` +
       `già in cache: ${est.pages_cached} · tempo stimato: ~${humanDuration(est.estimated_seconds * 1000)} · ` +
-      `costo: ${cost}`;
+      `costo: ${cost}${costNote}`;
   } catch { box.textContent = ""; }
 }
 
@@ -370,6 +499,9 @@ function refreshSummary() {
     ["Motore", engineLabel(selectedEngine())],
     ["Uscita", `${$("output-name").value || "(automatico)"} · ${state.wizard.rangeMode === "single" ? "ZIP pagine singole" : "unico PDF"}`],
   ];
+  if (selectedEngine() === "llm") {
+    lines.push(["Chiave", llmKeyValue() ? "tua (BYOK)" : "del server"]);
+  }
   box.textContent = "";
   for (const [k, v] of lines) {
     const row = document.createElement("div");
@@ -391,6 +523,20 @@ async function submitJob() {
     output_name: $("output-name").value || null,
     range_mode: state.wizard.rangeMode,
   };
+  if (selectedEngine() === "llm") {
+    const key = llmKeyValue();
+    if (!key) return toast("Inserisci la chiave OpenRouter (motore LLM)");
+    payload.llm_api_key = key;
+    if ($("llm-remember").checked) saveKey(key);
+  }
+  const termsBox = $("accept-terms");
+  const termsAccepted = termsBox && termsBox.checked;
+  if (state.meta && state.meta.terms_required && !termsAccepted) {
+    return toast("Devi accettare i Termini d'uso per avviare il lavoro");
+  }
+  if (termsAccepted && state.meta) {
+    payload.terms_version = state.meta.terms_version;
+  }
   $("wizard-next").disabled = true;
   let response;
   try {

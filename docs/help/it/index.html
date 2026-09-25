@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guida — Noesis PDF Cloner Service</title>
+  <link rel="stylesheet" href="../css/help.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <a class="brand" href="../">🧬 Noesis PDF Cloner — <em>Guida (service)</em></a>
+    <div class="lang-switch">
+      <a href="./" class="active" lang="it">🇮🇹 Italiano</a>
+      <a href="../en/" lang="en">🇬🇧 English</a>
+      <a href="../note-legali.html">📜 Note legali</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <nav class="sidebar">
+      <div class="group-label">Prodotto</div>
+      <a href="#features">Panoramica</a>
+      <a href="#start">Per iniziare</a>
+      <a href="#interface">Interfaccia</a>
+      <div class="group-label">Uso</div>
+      <a href="#workflow">Flusso completo</a>
+      <a href="#pages">Pagine e numerazione</a>
+      <a href="#engines">Motori</a>
+      <a href="#apikey">Chiave OpenRouter (BYOK)</a>
+      <a href="#download">Download</a>
+      <div class="group-label">Piattaforme</div>
+      <a href="#install">Installazione</a>
+      <a href="#api">API e CLI</a>
+      <a href="#uninstall">Disinstallazione</a>
+      <div class="group-label">Legalità</div>
+      <a href="../note-legali.html">Note legali</a>
+      <div class="group-label">Riferimento</div>
+      <a href="#faq">FAQ</a>
+    </nav>
+
+    <main class="content">
+      <h1>Noesis PDF Cloner — Guida</h1>
+      <p>Noesis PDF Cloner <strong>apre un PDF, traduce le pagine che scegli e ne
+      preserva il layout</strong>: testo, immagini, tabelle e numeri di pagina
+      restano al loro posto, cambia solo la lingua. Il risultato è un
+      <strong>PDF tradotto</strong> (o uno <strong>ZIP di pagine singole</strong>).
+      Si usa dal <strong>browser</strong> oppure da <strong>riga di comando</strong>
+      (CLI).</p>
+
+      <!-- ═══════════════ PRODOTTO ═══════════════ -->
+
+      <h2 id="features">Panoramica</h2>
+      <p>La traduzione è prodotta dal motore <strong>pdf2zh_next v2</strong>
+      (typesetter <strong>BabelDOC</strong>). Le pagine vengono lavorate a
+      <strong>blocchi da 100</strong>, quindi anche un libro intero procede senza
+      bloccarsi. I lavori entrano in una <strong>coda</strong> ed è possibile
+      seguirne l'avanzamento in tempo reale.</p>
+
+      <div class="cards">
+        <div class="card"><h4>🧩 Layout preservato</h4><p>Impaginazione, figure e
+          tabelle restano come nell'originale.</p></div>
+        <div class="card"><h4>👁️ Anteprima anti-errore</h4><p>Miniatura con
+          <strong>numero fisico + etichetta stampata</strong>.</p></div>
+        <div class="card"><h4>⏱️ Stima prima dell'avvio</h4><p>Tempo e costo
+          calcolati prima di partire.</p></div>
+        <div class="card"><h4>🌐 Tre motori</h4><p>Google, Bing (gratuiti) e LLM
+          via OpenRouter.</p></div>
+        <div class="card"><h4>🔑 BYOK</h4><p>Per l'LLM usi la <em>tua</em> chiave:
+          non viene salvata.</p></div>
+        <div class="card"><h4>⚡ Cache</h4><p>Le pagine già tradotte sono
+          istantanee.</p></div>
+        <div class="card"><h4>🧵 Coda e paralleli</h4><p>Più lavori insieme, con
+          avanzamento live.</p></div>
+        <div class="card"><h4>🐳 Docker</h4><p>Immagine pronta multi-piattaforma,
+          senza installare nulla.</p></div>
+      </div>
+
+      <!-- ═══════════════ PER INIZIARE ═══════════════ -->
+
+      <h2 id="start">Per iniziare</h2>
+      <ol>
+        <li>Avvia il servizio (vedi <a href="#install">Installazione</a>).</li>
+        <li>Apri il browser su <code>http://127.0.0.1:18080</code>.</li>
+        <li>Clicca <strong>＋</strong> per iniziare un nuovo lavoro.</li>
+        <li>Trascina il PDF, scegli le pagine, la lingua e il motore.</li>
+        <li>Premi <strong>Avanti</strong> fino all'ultimo passo, poi avvia la
+          traduzione.</li>
+        <li>A fine lavoro scarica il PDF (o lo ZIP).</li>
+      </ol>
+
+      <!-- ═══════════════ INTERFACCIA ═══════════════ -->
+
+      <h2 id="interface">Interfaccia</h2>
+      <p>La home mostra i tuoi lavori. In alto trovi il nome del servizio, i
+      pulsanti di aiuto e la versione; al centro la griglia dei lavori.</p>
+
+<pre class="ascii">
+ ┌────────────────────────────────────────────────────────────────────────────┐
+ │ 🧬 Noesis PDF Cloner [service]        [Termini d'uso] [Guida]      v0.1.0  │
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │  I miei lavori                         [ S ][ M ][ L ]   [ Cerca…        ]  │
+ │                                                                            │
+ │  ┌──────────┐  ┌──────────┐  ┌──────────┐                                  │
+ │  │ lavoro A │  │ lavoro B │  │ lavoro C │   ← tessere dei lavori           │
+ │  │ in corso │  │   fatto  │  │  errore  │                                  │
+ │  └──────────┘  └──────────┘  └──────────┘                                  │
+ │                                                                            │
+ │  Nessun lavoro ancora. Clicca ＋ per iniziare.                              │
+ └────────────────────────────────────────────────────────────────────────────┘
+</pre>
+
+      <h3>Gli elementi</h3>
+      <ul>
+        <li><strong>Termini d'uso</strong>: apre la pagina locale
+          <code>/terms</code>.</li>
+        <li><strong>Guida</strong>: apre questa guida (GitHub Pages).</li>
+        <li><strong>＋</strong>: avvia un nuovo lavoro (wizard).</li>
+        <li><strong>S / M / L</strong>: dimensione delle tessere.</li>
+        <li><strong>Cerca</strong>: filtra i lavori per nome, lingua o stato.</li>
+        <li><strong>Tessera di un lavoro</strong>: clicca per aprire il dettaglio
+          (log, avanzamento, download).</li>
+      </ul>
+
+      <!-- ═══════════════ FLUSSO ═══════════════ -->
+
+      <h2 id="workflow">Flusso completo</h2>
+      <p>Il wizard è composto da cinque passi. Puoi tornare indietro con
+      <strong>← Indietro</strong> prima di avviare.</p>
+
+<pre class="ascii">
+   1. PDF           2. PAGINE          3. LINGUE         4. MOTORE         5. OUTPUT
+ ┌───────────┐    ┌───────────┐     ┌───────────┐     ┌───────────┐     ┌───────────┐
+ │ drag&drop │ →  │ all       │  →  │ da: auto  │  →  │ google    │  →  │ nome PDF  │
+ │   .pdf    │    │ 100-103   │     │ a:   it   │     │ bing      │     │ unico/ZIP │
+ │           │    │ 3,5,10-12 │     │           │     │ llm (BYOK)│     │           │
+ └───────────┘    └───────────┘     └───────────┘     └───────────┘     └─────┬─────┘
+                                                                              │
+                         ┌────────────────────────────────────────────────────┘
+                         ▼
+                   ┌───────────┐     ┌───────────┐     ┌───────────────┐
+                   │  coda     │  →  │ avanzamen-│  →  │  download      │
+                   │ (queued)  │     │ to live   │     │ PDF / ZIP      │
+                   └───────────┘     └───────────┘     └───────────────┘
+</pre>
+
+      <h3>Stati di un lavoro</h3>
+<pre class="ascii">
+ queued ──▶ running ──┬──▶ done      (file pronto: scarica)
+   ▲                  ├──▶ error     (vedi il log nel dettaglio)
+   └── promosso       └──▶ cancelled (annullato)
+        (dopo un riavvio: interrupted)
+</pre>
+
+      <p>Prima di avviare, se il servizio lo richiede, spunta la casella
+      <strong>«Accetto i Termini d'uso»</strong> (con i link a Termini e Privacy).</p>
+
+      <!-- ═══════════════ PAGINE ═══════════════ -->
+
+      <h2 id="pages">Pagine e numerazione</h2>
+      <p>Puoi indicare <code>all</code> per tutte le pagine, una sola pagina
+      (<code>7</code>), un intervallo (<code>100-103</code>) o un elenco
+      (<code>3,5,10-12</code>).</p>
+      <p><strong>Attenzione alla doppia numerazione.</strong> Nei PDF il
+      <em>numero fisico</em> (posizione nel file) e il <em>numero stampato</em>
+      sulla pagina possono non coincidere. L'anteprima mostra entrambi:</p>
+<pre class="ascii">
+  ┌───────────────┐   numero fisico:   156   ← posizione nel file (quello che scrivi)
+  │   …pagina…    │   etichetta:       142   ← numero stampato sul documento
+  └───────────────┘
+</pre>
+      <p>Usa il valore che compare <strong>stampato</strong> se stai copiando il
+      numero dalla pagina; usa il <strong>fisico</strong> se stai contando le
+      pagine del file.</p>
+
+      <!-- ═══════════════ MOTORI ═══════════════ -->
+
+      <h2 id="engines">Motori</h2>
+      <table>
+        <tr><th>Motore</th><th>Costo</th><th>Chiave</th></tr>
+        <tr><td><code>google</code></td><td>gratuito</td><td>no</td></tr>
+        <tr><td><code>bing</code></td><td>gratuito</td><td>no</td></tr>
+        <tr><td><code>llm</code></td><td>a consumo (OpenRouter)</td><td>sì (BYOK)</td></tr>
+      </table>
+      <p>Nel passo <strong>Motore</strong> compare la <strong>stima</strong> di
+      tempo e costo per la selezione scelta. Per il motore <code>llm</code> il
+      costo è a carico del tuo account OpenRouter.</p>
+
+      <h2 id="apikey">Chiave OpenRouter (BYOK)</h2>
+      <p>Per usare il motore <code>llm</code> inserisci la <strong>tua</strong>
+      chiave. La chiave:</p>
+      <ul>
+        <li>è usata <strong>solo</strong> per eseguire le traduzioni richieste;</li>
+        <li><strong>non viene salvata</strong> sul server né scritta nei log;</li>
+        <li>resta nel tuo browser; i costi vanno sul tuo account OpenRouter.</li>
+      </ul>
+<pre class="ascii">
+  browser ──(chiave nella richiesta)──▶ server ──▶ pdf2zh_next
+      ▲                                              │
+      └────── la chiave NON viene conservata ─────────┘
+</pre>
+      <p>Nel passo <strong>Motore</strong>, selezionando <code>llm</code> compare
+      il campo: incolla la chiave (nascosta, con 👁 per mostrarla) e premi
+      <strong>Verifica chiave e modello</strong> per un controllo immediato.
+      Spunta <strong>«Ricorda in questo browser»</strong> per non reinserirla alla
+      riapertura; <strong>Dimentica</strong> la cancella.</p>
+      <p>Se non hai una chiave, usa <code>google</code> o <code>bing</code>:
+      funzionano subito e senza registrazione.</p>
+
+      <!-- ═══════════════ DOWNLOAD ═══════════════ -->
+
+      <h2 id="download">Download</h2>
+      <ul>
+        <li><strong>Un unico PDF</strong>: le pagine tradotte in un solo file.</li>
+        <li><strong>ZIP di pagine singole</strong>: un PDF per ogni pagina.</li>
+      </ul>
+      <p>Apri il dettaglio del lavoro (clic sulla tessera) e usa il pulsante di
+      download quando lo stato è <strong>done</strong>.</p>
+
+      <!-- ═══════════════ INSTALLAZIONE ═══════════════ -->
+
+      <h2 id="install">Installazione</h2>
+      <p>Il modo più semplice è <strong>Docker</strong>:</p>
+      <pre class="ascii">docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
+  ghcr.io/vigliafg/noesis-pdf-cloner-service:latest</pre>
+      <p>In alternativa, dai sorgenti su Linux/macOS/WSL:</p>
+      <pre class="ascii">git clone https://github.com/vigliafg/noesis-pdf-cloner-service
+cd noesis-pdf-cloner-service
+./install.sh</pre>
+      <p>Guida completa all'installazione (Windows, offline, API+worker):
+      <a href="https://github.com/vigliafg/noesis-pdf-cloner-service/blob/main/docs/INSTALL.md">docs/INSTALL.md</a>.</p>
+
+      <h2 id="api">API e CLI</h2>
+      <p>Ogni funzione del browser è disponibile via API REST
+      (<code>/api/v1</code>) e da riga di comando:</p>
+      <pre class="ascii">./run-cli.sh libro.pdf -p 100-103 --src en --dst it --engine google</pre>
+      <p>Per il motore <code>llm</code> da CLI: esporta
+      <code>OPENROUTER_API_KEY</code> (consigliato) oppure usa
+      <code>--llm-api-key-file</code>; <code>--llm-api-key</code> è comodo ma
+      visibile in <code>ps</code>/history.</p>
+      <p>Dettagli in <a href="https://github.com/vigliafg/noesis-pdf-cloner-service#api">README</a>.</p>
+
+      <h2 id="uninstall">Disinstallazione</h2>
+      <pre class="ascii">./uninstall.sh            # scelta interattiva di cosa rimuovere
+./noesis uninstall --all  # nessuna traccia</pre>
+      <p>Con Docker: <code>docker rm -f noesis</code> (e rimuovi il volume
+      <code>noesis-data</code> se non ti serve più).</p>
+
+      <!-- ═══════════════ FAQ ═══════════════ -->
+
+      <h2 id="faq">FAQ</h2>
+      <h3>La traduzione è istantanea su alcune pagine: perché?</h3>
+      <p>Sono pagine già in <strong>cache</strong>: lo stesso documento e la stessa
+      lingua non vengono ritradotti.</p>
+
+      <h3>Posso tradurre un libro intero?</h3>
+      <p>Sì, con <code>all</code>. Consigliabile su testi che hai il diritto di
+      elaborare.</p>
+
+      <h3>La traduzione contiene errori?</h3>
+      <p>È una traduzione <strong>automatica</strong>: verificala sempre. Vedi le
+      <a href="../note-legali.html">note legali</a>.</p>
+
+      <h3>Dove finiscono i miei file?</h3>
+      <p>Restano sul tuo server; documenti e artefatti vengono rimossi
+      automaticamente (24h/72h). Vedi la
+      <a href="https://github.com/vigliafg/noesis-pdf-cloner-service/blob/main/legal/PRIVACY.it.md">Privacy</a>.</p>
+    </main>
+  </div>
+
+  <script src="../js/help.js"></script>
+</body>
+</html>
