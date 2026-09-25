@@ -159,86 +159,77 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
   **validazione** `POST /api/v1/llm/validate` (chiave, credito, modello),
   `byok_supported`/`llm_model` in `/meta`; **parità CLI**
   (`--llm-api-key` / `--llm-api-key-file`). Con `ROLE≠all` → 409.
+- **Pubblicazione**: GitHub Pages abilitato e **guida online**
+  (<https://vigliafg.github.io/noesis-pdf-cloner-service/>); pushato su `main`
+  (`pages` ✅, `security` ✅, `tests` ✅); 5 PR Dependabot mergiate.
 
 **Coda di lavoro (backlog)** — aggiornata al 25/09/2026.
 *Stato: servizio locale, **non esposto a terzi**.*
 
 ### Prima di esporre il servizio a terzi (bloccanti)
 
-1. ~~**Accettazione Termini in UI**~~ **FATTO (25/09/2026)**: casella nel passo
-   *Output* (con link a Termini/Privacy), invio di `terms_version`, `terms_required`
-   in `/meta`, promemoria in `localStorage`. Il gate resta **spento** di default
-   (`REQUIRE_TERMS_ACCEPTANCE=false`) e si attiva quando esponi.
-2. **Placeholder legali**: sostituire `[data]`, `[email]`, `[URL]` in `legal/*`
-   (servono email di ruolo e URL pubblico).
+1. **Placeholder legali**: sostituire `[data]`, `[email]`, `[URL]` in `legal/*`
+   (servono email di ruolo e URL pubblico). **Richiede dati tuoi.**
+2. **Attivare il gate dei Termini** quando esponi:
+   `REQUIRE_TERMS_ACCEPTANCE=true` (default off). La UI è già pronta.
 3. **Procedura takedown / DSA**: pagina + contatto + runbook di rimozione
-   (notice-and-action).
-4. **Revisione legale** dei testi (AGPL §7, GDPR, DSA, consumer).
-5. ~~**Abilitare GitHub Pages**~~ **FATTO (25/09/2026)**: Pages abilitato
-   (Source: GitHub Actions). Guida live su
-   <https://vigliafg.github.io/noesis-pdf-cloner-service/> (IT/EN + Note legali).
-   Pubblicata dal workflow `pages.yml` a ogni push su `main`.
-6. ~~**Riconciliare il modello "gratuito + BYOK"**~~ **FATTO (25/09/2026)**: il
-   **codice commerciale resta** (seam, prezzi, pagamenti), ma i **default sono
-   gratuiti**: `COST_CENTS_PER_PAGE_*` = `0` (anche nel file d'esempio), niente
-   finto valore di chiave in `noesis.env.example`, testi UI aggiornati (LLM: costo
-   a carico dell'utente su OpenRouter).
-7. ~~**Google non ufficiale**~~ **DECISIONE (25/09/2026)**: **nessun interruttore**;
-   il motore `google` resta **sempre disponibile** (rischio accettato).
+   (notice-and-action). **Richiede un contatto.**
+4. **Revisione legale** dei testi (AGPL §7, GDPR, DSA, consumer). **Esterna.**
 
 ### Decisioni aperte
 
-8. **Chiave OpenRouter negli installer semplici** (`./noesis install`): (a)
+5. **Chiave OpenRouter negli installer semplici** (`./noesis install`): (a)
    continuare a chiederla come fallback; (b) rimandare al campo in UI; (c)
    chiederla spiegando entrambe le opzioni. *Rimandata.*
-9. **BYOK multi-worker (Opzione 2)**: canale cifrato API↔worker, se si
+6. **BYOK multi-worker (Opzione 2)**: canale cifrato API↔worker, se si
    separano i ruoli `api`/`worker`.
-10. **CLA**: il testo c'è, manca il **meccanismo di applicazione** (es. CLA
-    Assistant).
-11. **Entità giuridica + assicurazione** prima di esporre/scalare.
-12. **Verifica IP del datore di lavoro / università**.
-13. **Ricerca di anteriorità** sul marchio "Noesis".
-14. **Libri interi** (rischio accettato): eventuali limiti per-IP.
+7. **CLA**: il testo c'è, manca il **meccanismo di applicazione** (es. CLA
+   Assistant).
+8. **Entità giuridica + assicurazione** prima di esporre/scalare.
+9. **Verifica IP del datore di lavoro / università**.
+10. **Ricerca di anteriorità** sul marchio "Noesis".
+11. **Libri interi** (rischio accettato): eventuali limiti per-IP.
 
 ### Licenze / asset
 
-15. **Go Noto Kurrent** (licenza non dichiarata) e **modello ONNX**
+12. **Go Noto Kurrent** (licenza non dichiarata) e **modello ONNX**
     (AGPL-3.0 vs Apache-2.0): chiarire o sostituire.
-16. **Note di copyright per-font** accanto al testo OFL (completezza).
-17. **Verifica build Docker** con i digest pinnati (CI al prossimo push).
+13. **Note di copyright per-font** accanto al testo OFL (completezza).
+14. **Verifica build Docker** con i digest pinnati (CI al primo push).
 
-### Note CI (25/09/2026)
+### Manutenzione CI
 
-- **Pages online**: <https://vigliafg.github.io/noesis-pdf-cloner-service/> (workflow `pages` ✅).
-- **tests** ✅ (dopo un *rerun*: il job `windows-service` era fallito nel cleanup
-  dell'action `astral-sh/setup-uv@v5` su Windows — **flaky**, non dipende dal
-  nostro codice; `v5` è molto vecchia, l'ultima è v10).
-- **security** ✅ (pip-audit).
-- **Dependabot**: 5 PR di aggiornamento Actions **mergiate** (checkout → v7.0.1,
-  deploy-pages → v5.0.1, upload-pages-artifact → v5.0.0, setup-qemu → v4.4.0,
-  setup-buildx → v4.4.1). Pages ri-validato con le nuove versioni ✅.
-- **docker** (build multi-arch + push GHCR) in corso al primo push.
+15. **Aggiornare `astral-sh/setup-uv`**: la `v5` pinnata è vecchia (ultima v10) e
+    ha dato un fallimento *flaky* nel cleanup su Windows. Dependabot non l'ha
+    ancora proposta: valutare un bump manuale.
+16. **Controllare l'esito finale** del workflow `docker` (build multi-arch + GHCR).
 
 ### Trasparenza / documenti
 
-18. **AI Act**: valutare un metadato nel PDF prodotto (oltre all'avviso in UI).
-19. **Privacy**: cookie/ePrivacy, eventuale Registro (Art. 30) e DPIA.
+17. **AI Act**: valutare un metadato nel PDF prodotto (oltre all'avviso in UI).
+18. **Privacy**: cookie/ePrivacy, eventuale Registro (Art. 30) e DPIA.
 
 ### Azioni manuali / pubblicazione
 
-20. Creare email di ruolo `legal@` / `privacy@` / `security@`.
-21. **Ruotare** eventuali chiavi storicamente esposte.
-22. ~~**Push e CI verde** (test, pages, security)~~ **FATTO (25/09/2026)**: pushato
-    su `main`; `pages` ✅, `security` ✅, `tests` ✅ (dopo rerun per flaky
-    `setup-uv`); PR Dependabot mergiate.
-23. **Tag/release** per la corrispondenza versione ↔ sorgente (AGPL §13).
-24. Rigenerare `docs/help/note-legali.html` quando cambiano i documenti legali
+19. Creare email di ruolo `legal@` / `privacy@` / `security@`.
+20. **Ruotare** eventuali chiavi storicamente esposte.
+21. **Tag/release** per la corrispondenza versione ↔ sorgente (AGPL §13).
+22. Rigenerare `docs/help/note-legali.html` quando cambiano i documenti legali
     (in CI è automatico; in locale:
     `.venv/bin/python tools/build_help_legal.py`).
 
 ### Backlog prodotto (fase successiva)
 
-25. Auth / quota / pagamenti (seam già presenti: attivare solo se richiesto).
-26. Multi-nodo `Redis`/`Postgres` (rimandato).
+23. Auth / quota / pagamenti (seam già presenti: attivare solo se richiesto).
+24. Multi-nodo `Redis`/`Postgres` (rimandato).
+
+### Note CI (25/09/2026)
+
+- **Pages online**: <https://vigliafg.github.io/noesis-pdf-cloner-service/>.
+- **tests** ✅ (dopo un *rerun* per il flaky `setup-uv` su Windows).
+- **security** ✅ · **pages** ✅ · **docker** ⏳ in corso.
+- **Dependabot**: 5 PR mergiate (checkout v7.0.1, deploy-pages v5.0.1,
+  upload-pages-artifact v5.0.0, setup-qemu v4.4.0, setup-buildx v4.4.1).
+- Per mergiare le PR Dependabot da `gh` serve lo scope: `gh auth refresh -s workflow`.
 
 
