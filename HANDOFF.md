@@ -214,8 +214,9 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
   dell'action `astral-sh/setup-uv@v5` su Windows — **flaky**, non dipende dal
   nostro codice; `v5` è molto vecchia, l'ultima è v10).
 - **security** ✅ (pip-audit).
-- **Dependabot** ha aperto 5 PR per aggiornare le Actions (checkout, deploy-pages,
-  upload-pages-artifact, setup-qemu, setup-buildx). Da valutare/mergiare.
+- **Dependabot**: 5 PR di aggiornamento Actions **mergiate** (checkout → v7.0.1,
+  deploy-pages → v5.0.1, upload-pages-artifact → v5.0.0, setup-qemu → v4.4.0,
+  setup-buildx → v4.4.1). Pages ri-validato con le nuove versioni ✅.
 - **docker** (build multi-arch + push GHCR) in corso al primo push.
 
 ### Trasparenza / documenti
@@ -227,7 +228,9 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
 
 20. Creare email di ruolo `legal@` / `privacy@` / `security@`.
 21. **Ruotare** eventuali chiavi storicamente esposte.
-22. Push e **CI verde** (test, pages, security).
+22. ~~**Push e CI verde** (test, pages, security)~~ **FATTO (25/09/2026)**: pushato
+    su `main`; `pages` ✅, `security` ✅, `tests` ✅ (dopo rerun per flaky
+    `setup-uv`); PR Dependabot mergiate.
 23. **Tag/release** per la corrispondenza versione ↔ sorgente (AGPL §13).
 24. Rigenerare `docs/help/note-legali.html` quando cambiano i documenti legali
     (in CI è automatico; in locale:
