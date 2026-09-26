@@ -189,6 +189,7 @@ def _make_engine(settings: Settings) -> CloneEngine:
         fast_worker=settings.fast_worker,
         llm_reasoning_effort=settings.llm_reasoning_effort,
         llm_json_mode=settings.llm_json_mode,
+        numeric_lists=settings.numeric_lists,
     )
 
 

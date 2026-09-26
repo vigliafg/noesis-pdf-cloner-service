@@ -57,9 +57,18 @@ def test_apply_all_is_safe_without_babeldoc():
     assert set(state) == {
         engine_patch.FONT_METADATA_CACHE,
         engine_patch.MEMORY_MONITOR,
+        engine_patch.NUMERIC_LISTS,
     }
     assert all(isinstance(v, bool) for v in state.values())
+    assert state[engine_patch.NUMERIC_LISTS] is False  # opt-in
     _reset()
+
+
+def test_looks_like_list_marker():
+    assert engine_patch._looks_like_list_marker("1. Obtain")
+    assert engine_patch._looks_like_list_marker("a) Item")
+    assert not engine_patch._looks_like_list_marker("1.5 g/dL")
+    assert not engine_patch._looks_like_list_marker("Obtain")
 
 
 def test_apply_all_is_idempotent():

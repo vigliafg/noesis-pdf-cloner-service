@@ -119,6 +119,8 @@ class Settings:
     fast_worker: bool = False
     llm_reasoning_effort: str = ""  # "" | minimal | low | medium | high
     llm_json_mode: bool = False
+    # Riconoscimento liste numerate/alfabetiche (patch runtime, opt-in).
+    numeric_lists: bool = False
     # Rifiuta a monte un job LLM senza chiave (evita che fallisca in coda).
     preflight_guard: bool = True
 
@@ -256,6 +258,7 @@ class Settings:
             fast_worker=_env_bool("FAST_WORKER", False),
             llm_reasoning_effort=_env_str("PDF_LLM_REASONING_EFFORT", ""),
             llm_json_mode=_env_bool("PDF_LLM_JSON_MODE", False),
+            numeric_lists=_env_bool("NUMERIC_LISTS", False),
             preflight_guard=_env_bool("PREFLIGHT_GUARD", True),
             estimate_ms_per_page={
                 "google": _env_int("ESTIMATE_MS_PER_PAGE_GOOGLE", 0),

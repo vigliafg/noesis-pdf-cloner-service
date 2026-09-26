@@ -319,3 +319,22 @@ def test_worker_client_module_exposes_api():
     assert hasattr(engine_client, "EngineWorkerClient")
     assert hasattr(engine_client.EngineWorkerClient, "ensure_started")
     assert hasattr(engine_client.EngineWorkerClient, "run")
+
+
+def test_numeric_lists_uses_wrapper_env_and_tag(tmp_path, monkeypatch):
+    from app import engine as engine_module
+    from app.engine import CloneEngine
+
+    worker = tmp_path / "engine_wrapper.py"
+    worker.write_text("")
+    monkeypatch.setattr(engine_module, "_engine_wrapper_path", lambda: worker)
+    monkeypatch.setattr(engine_module, "venv_python_for", lambda *_: "/venv/python")
+
+    engine = CloneEngine(tmp_path / "cache", numeric_lists=True)
+    fake = tmp_path / "pdf2zh_next"
+    fake.write_text("#!/bin/sh\n")
+    # Usa il wrapper anche senza fast_engine.
+    assert engine._engine_launch_prefix(fake) == ["/venv/python", str(worker)]
+    env = engine._engine_env("en", "it")
+    assert env.get("NOESIS_NUMERIC_LISTS") == "1"
+    assert "lists1" in engine._version_tag()

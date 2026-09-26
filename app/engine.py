@@ -308,6 +308,7 @@ class CloneEngine:
         fast_worker: bool = False,
         llm_reasoning_effort: str = "",
         llm_json_mode: bool = False,
+        numeric_lists: bool = False,
     ) -> None:
         self.cache_root = Path(cache_root)
         self.split_root = self.cache_root / "split"
@@ -329,6 +330,8 @@ class CloneEngine:
         self.fast_worker = bool(fast_worker)
         self.llm_reasoning_effort = (llm_reasoning_effort or "").strip()
         self.llm_json_mode = bool(llm_json_mode)
+        # Opt-in: riconoscimento liste numerate/alfabetiche (patch runtime).
+        self.numeric_lists = bool(numeric_lists)
         self._worker_client = None
         self._worker_lock = threading.Lock()
         self._locks: dict[str, threading.Lock] = {}
@@ -375,6 +378,8 @@ class CloneEngine:
             tag += "-" + hashlib.sha1(self.llm_model.encode()).hexdigest()[:8]
         if self._fast_engine_active():
             tag += f"-{FAST_ENGINE_TAG}"
+        if self.numeric_lists:
+            tag += "-lists1"
         return tag
 
     def split_path(self, doc_key: str, page: int) -> Path:
@@ -643,6 +648,11 @@ class CloneEngine:
             log.warning(
                 "fast_engine attivo ma engine_wrapper.py assente: uso il binario"
             )
+        elif self.numeric_lists:
+            # La patch delle liste numerate gira nel wrapper.
+            wrapper = _engine_wrapper_path()
+            if wrapper.is_file():
+                return [venv_python_for(pdf2zh), str(wrapper)]
         return [str(pdf2zh)]
 
     def _quality_flags(self, split: Path) -> list[str]:
@@ -819,6 +829,8 @@ class CloneEngine:
         if llm_key:
             env["OPENROUTER_API_KEY"] = llm_key
             env["PDF2ZH_OPENAI_API_KEY"] = llm_key
+        if self.numeric_lists:
+            env["NOESIS_NUMERIC_LISTS"] = "1"
         return env
 
     def _translate_uncached(
