@@ -108,6 +108,13 @@ class Settings:
     llm_model: str = "inception/mercury-2.5"
     llm_base_url: str = "https://openrouter.ai/api/v1"
     engine_cache_version: str = "1"
+    # Richieste LLM in parallelo dentro una pagina (usato solo dalla feature
+    # sperimentale fast_engine, quando il pool viene passato esplicitamente).
+    llm_pool_workers: int = 4
+    # Feature sperimentale "motore veloce" (default OFF, reversibile):
+    # wrapper con patch runtime + preset "traduzione rapida".
+    fast_engine: bool = False
+    fast_flags: bool = False
     # Rifiuta a monte un job LLM senza chiave (evita che fallisca in coda).
     preflight_guard: bool = True
 
@@ -239,6 +246,9 @@ class Settings:
             llm_model=_env_str("PDF_LLM_MODEL", "inception/mercury-2.5"),
             llm_base_url=_env_str("PDF_LLM_BASE_URL", "https://openrouter.ai/api/v1"),
             engine_cache_version=_env_str("ENGINE_CACHE_VERSION", "1"),
+            llm_pool_workers=_env_int("PDF_LLM_POOL_WORKERS", 4),
+            fast_engine=_env_bool("FAST_ENGINE", False),
+            fast_flags=_env_bool("FAST_FLAGS", False),
             preflight_guard=_env_bool("PREFLIGHT_GUARD", True),
             estimate_ms_per_page={
                 "google": _env_int("ESTIMATE_MS_PER_PAGE_GOOGLE", 0),

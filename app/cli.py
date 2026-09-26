@@ -183,6 +183,9 @@ def _make_engine(settings: Settings) -> CloneEngine:
         llm_model=settings.llm_model,
         llm_base_url=settings.llm_base_url,
         api_key=settings.openrouter_api_key,
+        llm_pool_workers=settings.llm_pool_workers,
+        fast_engine=settings.fast_engine,
+        fast_flags=settings.fast_flags,
     )
 
 

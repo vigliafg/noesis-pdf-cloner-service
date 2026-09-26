@@ -93,6 +93,8 @@ def estimate_job(
         llm_model=settings.llm_model,
         llm_base_url=settings.llm_base_url,
         api_key=settings.openrouter_api_key,
+        fast_engine=settings.fast_engine,
+        fast_flags=settings.fast_flags,
     )
     cached = cache.cached_pages(
         document.sha256, pages, engine, src_lang, dst_lang

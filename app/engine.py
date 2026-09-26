@@ -44,6 +44,9 @@ log = logging.getLogger("noesis.engine")
 
 ENGINES: tuple[str, ...] = ("google", "bing", "llm")
 CACHE_SCHEMA_VERSION = "1"
+# Marker di cache della feature sperimentale "motore veloce" (allineato a
+# ``engine_patch.PATCH_VERSION``).
+FAST_ENGINE_TAG = "fast1"
 DEFAULT_MODEL = "inception/mercury-2.5"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_PAGE_TIMEOUT = 900  # secondi per pagina densa (pdf2zh + BabelDOC)
@@ -208,6 +211,11 @@ def _gtranslate_cli_path() -> Path:
     return Path(__file__).resolve().with_name("gtranslate_cli.py")
 
 
+def _engine_wrapper_path() -> Path:
+    """Percorso di ``engine_wrapper.py`` (feature fast, accanto a engine.py)."""
+    return Path(__file__).resolve().with_name("engine_wrapper.py")
+
+
 def page_has_text(path: str | Path) -> bool:
     """True se la pagina contiene testo estraibile.
 
@@ -289,6 +297,9 @@ class CloneEngine:
         llm_model: str = DEFAULT_MODEL,
         llm_base_url: str = DEFAULT_BASE_URL,
         api_key: str | None = None,
+        llm_pool_workers: int = 4,
+        fast_engine: bool = False,
+        fast_flags: bool = False,
     ) -> None:
         self.cache_root = Path(cache_root)
         self.split_root = self.cache_root / "split"
@@ -301,6 +312,11 @@ class CloneEngine:
         self.llm_model = llm_model
         self.llm_base_url = llm_base_url
         self.api_key = api_key or ""
+        self.llm_pool_workers = max(1, int(llm_pool_workers))
+        # Feature sperimentale "motore veloce" (default OFF, reversibile).
+        # Kill switch d'ambiente: NOESIS_FAST_ENGINE=0 / NOESIS_FAST_FLAGS=0.
+        self.fast_engine = bool(fast_engine)
+        self.fast_flags = bool(fast_flags)
         self._locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
         self._doc_key_cache: dict[tuple, str] = {}
@@ -343,6 +359,8 @@ class CloneEngine:
         tag = f"cs{CACHE_SCHEMA_VERSION}-e{self.cache_version}"
         if self.api_key:  # il modello LLM incide sul risultato
             tag += "-" + hashlib.sha1(self.llm_model.encode()).hexdigest()[:8]
+        if self._fast_engine_active():
+            tag += f"-{FAST_ENGINE_TAG}"
         return tag
 
     def split_path(self, doc_key: str, page: int) -> Path:
@@ -502,19 +520,77 @@ class CloneEngine:
         return written
 
     # ── traduzione ───────────────────────────────────────────────────────
+    def _fast_engine_active(self) -> bool:
+        """True se la feature "motore veloce" è attiva (setting o env).
+
+        ``NOESIS_FAST_ENGINE=0`` è il kill switch di rollback: riporta al
+        percorso storico anche se il setting è attivo.
+        """
+        raw = os.environ.get("NOESIS_FAST_ENGINE")
+        if raw is not None and raw.strip():
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        return bool(self.fast_engine)
+
+    def _fast_flags_active(self) -> bool:
+        """True se il preset "traduzione rapida" (flag B2) è attivo."""
+        if not self._fast_engine_active():
+            return False
+        raw = os.environ.get("NOESIS_FAST_FLAGS")
+        if raw is not None and raw.strip():
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        return bool(self.fast_flags)
+
+    def _engine_launch_prefix(self, pdf2zh: Path) -> list[str]:
+        """Prefisso del comando: wrapper (patch runtime) o binario diretto.
+
+        Fail-safe: se il wrapper manca si usa il binario, così l'esperimento
+        non può bloccare la traduzione.
+        """
+        if self._fast_engine_active():
+            wrapper = _engine_wrapper_path()
+            if wrapper.is_file():
+                py = venv_python_for(pdf2zh)
+                return [py, str(wrapper)]
+            log.warning(
+                "fast_engine attivo ma engine_wrapper.py assente: uso il binario"
+            )
+        return [str(pdf2zh)]
+
+    def _quality_flags(self, split: Path) -> list[str]:
+        """Flag "traduzione rapida" (B2), solo a feature attiva."""
+        if not self._fast_flags_active():
+            return []
+        flags = [
+            "--skip-formula-offset-calculation",
+            "--no-remove-non-formula-lines",
+        ]
+        try:
+            from_text = page_has_text(split)
+        except Exception:  # noqa: BLE001
+            from_text = False
+        if from_text:
+            flags.append("--skip-scanned-detection")
+        return flags
+
     def _translator_flags(self, engine: str) -> tuple[list[str], str]:
         if normalize_engine(engine) == "llm":
             # La chiave NON va passata come flag: finirebbe in argv
             # (/proc/<pid>/cmdline, leggibile da altri utenti locali). Viene
             # iniettata nell'ambiente in `_translate_uncached` (PDF2ZH_OPENAI_API_KEY).
-            return (
-                [
-                    "--openai",
-                    "--openai-model", self.llm_model,
-                    "--openai-base-url", self.llm_base_url,
-                ],
-                f"llm ({self.llm_model})",
-            )
+            flags = [
+                "--openai",
+                "--openai-model", self.llm_model,
+                "--openai-base-url", self.llm_base_url,
+            ]
+            if self._fast_engine_active():
+                # Pool esplicito (anche =1) + qps allineato: altrimenti pdf2zh
+                # usa ``qps`` (default 4) come numero di worker.
+                workers = max(1, int(getattr(self, "llm_pool_workers", 1) or 1))
+                flags += [
+                    "--pool-max-workers", str(workers),
+                    "--qps", str(workers),
+                ]
+            return (flags, f"llm ({self.llm_model})")
         if engine == "google":
             pdf2zh = self.pdf2zh_bin() or Path(sys.executable)
             py = venv_python_for(pdf2zh)
@@ -643,8 +719,7 @@ class CloneEngine:
         work_dir = self.translated_root / "_tmp" / f"tmp_{doc_key[:12]}_{page:06d}_{engine}_{uuid.uuid4().hex[:8]}"
         shutil.rmtree(work_dir, ignore_errors=True)
         work_dir.mkdir(parents=True, exist_ok=True)
-        cmd = [
-            str(pdf2zh),
+        cmd = self._engine_launch_prefix(pdf2zh) + [
             str(split),
             "--lang-in", lang_in,
             "--lang-out", lang_out,
@@ -654,7 +729,7 @@ class CloneEngine:
             "--only-include-translated-page",
             "--disable-config-auto-save",
             "--disable-gui-sensitive-input",
-        ] + t_flags
+        ] + t_flags + self._quality_flags(split)
         env = dict(os.environ)
         env["PDF_LANG_IN"] = lang_in
         env["PDF_LANG_OUT"] = lang_out

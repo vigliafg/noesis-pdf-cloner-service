@@ -60,6 +60,9 @@ class JobRunner:
             llm_model=self.settings.llm_model,
             llm_base_url=self.settings.llm_base_url,
             api_key=api_key,
+            llm_pool_workers=self.settings.llm_pool_workers,
+            fast_engine=self.settings.fast_engine,
+            fast_flags=self.settings.fast_flags,
         )
 
     def run(self, job: JobRecord, cancel_event: threading.Event):
