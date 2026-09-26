@@ -314,6 +314,10 @@ class CloneEngine:
         self.cache_root = Path(cache_root)
         self.split_root = self.cache_root / "split"
         self.translated_root = self.cache_root / "translated"
+        # Tag del worker persistente: engine diversi devono avere cartelle di
+        # ready/log separate, altrimenti i client si connettono al worker
+        # sbagliato (conflitto su ``worker.ready``).
+        self._worker_tag = uuid.uuid4().hex[:12]
         self._pdf2zh_override = str(pdf2zh_bin) if pdf2zh_bin else ""
         self._pdf2zh_bin: Path | None = None
         self.max_engine_procs = max(1, int(max_engine_procs))
@@ -581,7 +585,9 @@ class CloneEngine:
                 self._worker_client = engine_client.EngineWorkerClient(
                     venv_python_for(pdf2zh),
                     _engine_worker_path(),
-                    engine_client.default_work_dir(self.cache_root),
+                    engine_client.default_work_dir(
+                        self.cache_root, self._worker_tag
+                    ),
                     idle_timeout=300.0,
                 )
             return self._worker_client
