@@ -121,6 +121,8 @@ class Settings:
     llm_json_mode: bool = False
     # Riconoscimento liste numerate/alfabetiche (patch runtime, opt-in).
     numeric_lists: bool = False
+    # Prompt di sistema personalizzato per il motore LLM (vuoto = default).
+    llm_system_prompt: str = ""
     # Rifiuta a monte un job LLM senza chiave (evita che fallisca in coda).
     preflight_guard: bool = True
 
@@ -259,6 +261,7 @@ class Settings:
             llm_reasoning_effort=_env_str("PDF_LLM_REASONING_EFFORT", ""),
             llm_json_mode=_env_bool("PDF_LLM_JSON_MODE", False),
             numeric_lists=_env_bool("NUMERIC_LISTS", False),
+            llm_system_prompt=_env_str("PDF_LLM_SYSTEM_PROMPT", ""),
             preflight_guard=_env_bool("PREFLIGHT_GUARD", True),
             estimate_ms_per_page={
                 "google": _env_int("ESTIMATE_MS_PER_PAGE_GOOGLE", 0),

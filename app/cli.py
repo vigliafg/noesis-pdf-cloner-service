@@ -190,6 +190,7 @@ def _make_engine(settings: Settings) -> CloneEngine:
         llm_reasoning_effort=settings.llm_reasoning_effort,
         llm_json_mode=settings.llm_json_mode,
         numeric_lists=settings.numeric_lists,
+        llm_system_prompt=settings.llm_system_prompt,
     )
 
 

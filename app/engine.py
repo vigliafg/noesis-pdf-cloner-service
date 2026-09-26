@@ -309,6 +309,7 @@ class CloneEngine:
         llm_reasoning_effort: str = "",
         llm_json_mode: bool = False,
         numeric_lists: bool = False,
+        llm_system_prompt: str = "",
     ) -> None:
         self.cache_root = Path(cache_root)
         self.split_root = self.cache_root / "split"
@@ -332,6 +333,7 @@ class CloneEngine:
         self.llm_json_mode = bool(llm_json_mode)
         # Opt-in: riconoscimento liste numerate/alfabetiche (patch runtime).
         self.numeric_lists = bool(numeric_lists)
+        self.llm_system_prompt = (llm_system_prompt or "").strip()
         self._worker_client = None
         self._worker_lock = threading.Lock()
         self._locks: dict[str, threading.Lock] = {}
@@ -380,6 +382,9 @@ class CloneEngine:
             tag += f"-{FAST_ENGINE_TAG}"
         if self.numeric_lists:
             tag += "-lists1"
+        prompt = (self.llm_system_prompt or "").strip()
+        if prompt:
+            tag += "-p" + hashlib.sha1(prompt.encode()).hexdigest()[:6]
         return tag
 
     def split_path(self, doc_key: str, page: int) -> Path:
@@ -681,6 +686,8 @@ class CloneEngine:
                 "--openai-model", self.llm_model,
                 "--openai-base-url", self.llm_base_url,
             ]
+            if self.llm_system_prompt:
+                flags += ["--custom-system-prompt", self.llm_system_prompt]
             if self._fast_engine_active():
                 # Pool esplicito (anche =1) + qps allineato: altrimenti pdf2zh
                 # usa ``qps`` (default 4) come numero di worker.
@@ -692,6 +699,8 @@ class CloneEngine:
                 if self.llm_reasoning_effort:
                     flags += [
                         "--openai-reasoning-effort", self.llm_reasoning_effort,
+                        # Senza questo pdf2zh NON invia l'effort al provider.
+                        "--openai-send-reasoning-effort",
                     ]
                 if self.llm_json_mode:
                     flags += ["--openai-enable-json-mode"]

@@ -257,7 +257,10 @@ Riverbero della feature del desktop `noesis-pdf-cloner` (branch
 - **Setting/env**: `fast_engine`/`FAST_ENGINE`, `fast_flags`/`FAST_FLAGS`,
   `fast_worker`/`FAST_WORKER`, `llm_pool_workers`/`PDF_LLM_POOL_WORKERS`,
   `llm_reasoning_effort`/`PDF_LLM_REASONING_EFFORT`,
-  `llm_json_mode`/`PDF_LLM_JSON_MODE`.
+  `llm_json_mode`/`PDF_LLM_JSON_MODE`, `numeric_lists`/`NUMERIC_LISTS`,
+  `llm_system_prompt`/`PDF_LLM_SYSTEM_PROMPT`.
+- **Nota**: `--openai-reasoning-effort` richiede anche
+  `--openai-send-reasoning-effort` (altrimenti pdf2zh non lo invia).
 - **Kill switch**: `NOESIS_FAST_ENGINE=0`, `NOESIS_FAST_FLAGS=0`.
 - **Cache**: marker `-fast1` (`FAST_ENGINE_TAG`) nel tag di versione.
 - **Fallback**: worker/patch non disponibili → si torna al subprocess.

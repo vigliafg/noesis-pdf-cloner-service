@@ -338,3 +338,21 @@ def test_numeric_lists_uses_wrapper_env_and_tag(tmp_path, monkeypatch):
     env = engine._engine_env("en", "it")
     assert env.get("NOESIS_NUMERIC_LISTS") == "1"
     assert "lists1" in engine._version_tag()
+
+
+def test_llm_sends_reasoning_effort_and_system_prompt(tmp_path):
+    from app.engine import CloneEngine
+
+    engine = CloneEngine(
+        tmp_path / "cache",
+        fast_engine=True,
+        llm_reasoning_effort="minimal",
+        llm_system_prompt="Mantieni i nomi dei farmaci in italiano.",
+    )
+    flags, _ = engine._translator_flags("llm")
+    # Senza --openai-send-reasoning-effort pdf2zh non invia l'effort.
+    assert "--openai-reasoning-effort" in flags
+    assert "--openai-send-reasoning-effort" in flags
+    assert flags[flags.index("--custom-system-prompt") + 1].startswith("Mantieni")
+    # Il prompt cambia l'output: marker di cache dedicato.
+    assert "-p" in engine._version_tag()
