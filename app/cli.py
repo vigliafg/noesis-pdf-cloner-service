@@ -186,6 +186,9 @@ def _make_engine(settings: Settings) -> CloneEngine:
         llm_pool_workers=settings.llm_pool_workers,
         fast_engine=settings.fast_engine,
         fast_flags=settings.fast_flags,
+        fast_worker=settings.fast_worker,
+        llm_reasoning_effort=settings.llm_reasoning_effort,
+        llm_json_mode=settings.llm_json_mode,
     )
 
 

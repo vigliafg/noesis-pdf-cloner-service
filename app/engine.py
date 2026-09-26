@@ -216,6 +216,11 @@ def _engine_wrapper_path() -> Path:
     return Path(__file__).resolve().with_name("engine_wrapper.py")
 
 
+def _engine_worker_path() -> Path:
+    """Percorso di ``engine_worker.py`` (worker persistente, accanto a engine.py)."""
+    return Path(__file__).resolve().with_name("engine_worker.py")
+
+
 def page_has_text(path: str | Path) -> bool:
     """True se la pagina contiene testo estraibile.
 
@@ -300,6 +305,9 @@ class CloneEngine:
         llm_pool_workers: int = 4,
         fast_engine: bool = False,
         fast_flags: bool = False,
+        fast_worker: bool = False,
+        llm_reasoning_effort: str = "",
+        llm_json_mode: bool = False,
     ) -> None:
         self.cache_root = Path(cache_root)
         self.split_root = self.cache_root / "split"
@@ -317,6 +325,12 @@ class CloneEngine:
         # Kill switch d'ambiente: NOESIS_FAST_ENGINE=0 / NOESIS_FAST_FLAGS=0.
         self.fast_engine = bool(fast_engine)
         self.fast_flags = bool(fast_flags)
+        # Fase 2/3 (sperimentali): worker persistente e opzioni LLM avanzate.
+        self.fast_worker = bool(fast_worker)
+        self.llm_reasoning_effort = (llm_reasoning_effort or "").strip()
+        self.llm_json_mode = bool(llm_json_mode)
+        self._worker_client = None
+        self._worker_lock = threading.Lock()
         self._locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
         self._doc_key_cache: dict[tuple, str] = {}
@@ -540,6 +554,81 @@ class CloneEngine:
             return raw.strip().lower() in ("1", "true", "yes", "on")
         return bool(self.fast_flags)
 
+    def _persistent_active(self) -> bool:
+        """True se va usato il worker persistente (Fase 2)."""
+        if not self._fast_engine_active():
+            return False
+        if not bool(getattr(self, "fast_worker", False)):
+            return False
+        return _engine_worker_path().is_file()
+
+    def _get_worker_client(self, pdf2zh: Path):
+        """Crea (una volta) il client del worker persistente."""
+        with self._worker_lock:
+            if self._worker_client is None:
+                from . import engine_client  # noqa: PLC0415
+
+                self._worker_client = engine_client.EngineWorkerClient(
+                    venv_python_for(pdf2zh),
+                    _engine_worker_path(),
+                    engine_client.default_work_dir(self.cache_root),
+                    idle_timeout=300.0,
+                )
+            return self._worker_client
+
+    def close(self) -> None:
+        """Termina il worker persistente, se attivo (idempotente)."""
+        with self._worker_lock:
+            if self._worker_client is not None:
+                with contextlib.suppress(Exception):
+                    self._worker_client.close()
+                self._worker_client = None
+
+    def _run_via_worker(
+        self,
+        pdf2zh: Path,
+        argv: list[str],
+        env: dict,
+        cancel_event: threading.Event | None,
+    ):
+        """Job sul worker persistente; ``None`` se non disponibile (fallback)."""
+        from . import engine_client  # noqa: PLC0415
+
+        client = self._get_worker_client(pdf2zh)
+        try:
+            return client.run(
+                argv, env, cancel_event=cancel_event, timeout=self.page_timeout
+            )
+        except engine_client.WorkerCancelled as exc:
+            raise TranslationCancelled("traduzione annullata") from exc
+        except engine_client.WorkerTimeout as exc:
+            raise EngineError("timeout della traduzione") from exc
+        except engine_client.WorkerError as exc:
+            log.warning(
+                "worker persistente non disponibile (%s): uso il subprocess", exc
+            )
+            return None
+
+    def warmup(self) -> None:
+        """Pre-avvia il worker persistente in background (best effort)."""
+        if not self._persistent_active():
+            return
+        with self._worker_lock:
+            if getattr(self, "_warmup_started", False):
+                return
+            self._warmup_started = True
+
+        def _go() -> None:
+            try:
+                pdf2zh = self.pdf2zh_bin()
+                if pdf2zh is None:
+                    return
+                self._get_worker_client(pdf2zh).ensure_started(self._engine_env())
+            except Exception:  # noqa: BLE001
+                log.warning("pre-avvio worker fallito", exc_info=True)
+
+        threading.Thread(target=_go, name="engine-warmup", daemon=True).start()
+
     def _engine_launch_prefix(self, pdf2zh: Path) -> list[str]:
         """Prefisso del comando: wrapper (patch runtime) o binario diretto.
 
@@ -590,6 +679,12 @@ class CloneEngine:
                     "--pool-max-workers", str(workers),
                     "--qps", str(workers),
                 ]
+                if self.llm_reasoning_effort:
+                    flags += [
+                        "--openai-reasoning-effort", self.llm_reasoning_effort,
+                    ]
+                if self.llm_json_mode:
+                    flags += ["--openai-enable-json-mode"]
             return (flags, f"llm ({self.llm_model})")
         if engine == "google":
             pdf2zh = self.pdf2zh_bin() or Path(sys.executable)
@@ -711,6 +806,21 @@ class CloneEngine:
                     src, doc_key, page, engine, lang_in, lang_out, out, pdf2zh, cancel_event
                 )
 
+    def _engine_env(self, lang_in: str, lang_out: str) -> dict:
+        """Ambiente per il motore (subprocess o worker persistente)."""
+        env = dict(os.environ)
+        env["PDF_LANG_IN"] = lang_in
+        env["PDF_LANG_OUT"] = lang_out
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["CLONE_ENGINE_EVENTS"] = str(self.cache_root / "engine_events.jsonl")
+        env["PDF_LLM_MODEL"] = self.llm_model
+        env["PDF_LLM_BASE_URL"] = self.llm_base_url
+        llm_key = self.api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        if llm_key:
+            env["OPENROUTER_API_KEY"] = llm_key
+            env["PDF2ZH_OPENAI_API_KEY"] = llm_key
+        return env
+
     def _translate_uncached(
         self, src, doc_key, page, engine, lang_in, lang_out, out, pdf2zh, cancel_event
     ) -> Path:
@@ -719,7 +829,8 @@ class CloneEngine:
         work_dir = self.translated_root / "_tmp" / f"tmp_{doc_key[:12]}_{page:06d}_{engine}_{uuid.uuid4().hex[:8]}"
         shutil.rmtree(work_dir, ignore_errors=True)
         work_dir.mkdir(parents=True, exist_ok=True)
-        cmd = self._engine_launch_prefix(pdf2zh) + [
+        prefix = self._engine_launch_prefix(pdf2zh)
+        argv = [
             str(split),
             "--lang-in", lang_in,
             "--lang-out", lang_out,
@@ -730,27 +841,15 @@ class CloneEngine:
             "--disable-config-auto-save",
             "--disable-gui-sensitive-input",
         ] + t_flags + self._quality_flags(split)
-        env = dict(os.environ)
-        env["PDF_LANG_IN"] = lang_in
-        env["PDF_LANG_OUT"] = lang_out
-        # UTF-8 nei subprocess figli (gtranslate_cli.py): su Windows evita che
-        # le accentate escano in cp1252 e diventino U+FFFD nel pipe.
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["CLONE_ENGINE_EVENTS"] = str(self.cache_root / "engine_events.jsonl")
-        # Allinea il fallback LLM della catena gratuita (gtranslate_cli.py) alla
-        # configurazione del servizio, anche se il modello è cambiato via codice.
-        env["PDF_LLM_MODEL"] = self.llm_model
-        env["PDF_LLM_BASE_URL"] = self.llm_base_url
-        # Chiave LLM: passata solo via ambiente, mai in argv. `OPENROUTER_API_KEY`
-        # serve al fallback LLM della catena gratuita (gtranslate_cli.py);
-        # `PDF2ZH_OPENAI_API_KEY` è la variabile letta da pdf2zh_next (prefisso PDF2ZH_).
-        llm_key = self.api_key or os.environ.get("OPENROUTER_API_KEY", "")
-        if llm_key:
-            env["OPENROUTER_API_KEY"] = llm_key
-            env["PDF2ZH_OPENAI_API_KEY"] = llm_key
+        cmd = prefix + argv
+        env = self._engine_env(lang_in, lang_out)
         try:
             log.info("traduzione pagina %d via %s", page + 1, t_name)
-            result = self._run_engine(cmd, env, cancel_event)
+            result = None
+            if self._persistent_active():
+                result = self._run_via_worker(pdf2zh, argv, env, cancel_event)
+            if result is None:
+                result = self._run_engine(cmd, env, cancel_event)
             if result.returncode != 0:
                 code = _engine_failure_code(engine, result.stderr, result.stdout)
                 # Per l'LLM riportiamo il codice specifico (chiave, credito,

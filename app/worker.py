@@ -63,6 +63,9 @@ class JobRunner:
             llm_pool_workers=self.settings.llm_pool_workers,
             fast_engine=self.settings.fast_engine,
             fast_flags=self.settings.fast_flags,
+            fast_worker=self.settings.fast_worker,
+            llm_reasoning_effort=self.settings.llm_reasoning_effort,
+            llm_json_mode=self.settings.llm_json_mode,
         )
 
     def run(self, job: JobRecord, cancel_event: threading.Event):

@@ -115,6 +115,10 @@ class Settings:
     # wrapper con patch runtime + preset "traduzione rapida".
     fast_engine: bool = False
     fast_flags: bool = False
+    # Fase 2/3: worker persistente e opzioni LLM avanzate.
+    fast_worker: bool = False
+    llm_reasoning_effort: str = ""  # "" | minimal | low | medium | high
+    llm_json_mode: bool = False
     # Rifiuta a monte un job LLM senza chiave (evita che fallisca in coda).
     preflight_guard: bool = True
 
@@ -249,6 +253,9 @@ class Settings:
             llm_pool_workers=_env_int("PDF_LLM_POOL_WORKERS", 4),
             fast_engine=_env_bool("FAST_ENGINE", False),
             fast_flags=_env_bool("FAST_FLAGS", False),
+            fast_worker=_env_bool("FAST_WORKER", False),
+            llm_reasoning_effort=_env_str("PDF_LLM_REASONING_EFFORT", ""),
+            llm_json_mode=_env_bool("PDF_LLM_JSON_MODE", False),
             preflight_guard=_env_bool("PREFLIGHT_GUARD", True),
             estimate_ms_per_page={
                 "google": _env_int("ESTIMATE_MS_PER_PAGE_GOOGLE", 0),

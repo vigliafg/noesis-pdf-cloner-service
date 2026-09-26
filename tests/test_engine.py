@@ -257,3 +257,65 @@ def test_fast_engine_version_tag_marker(tmp_path):
     assert FAST_ENGINE_TAG not in off
     engine.fast_engine = True
     assert FAST_ENGINE_TAG in engine._version_tag()
+
+
+# ── Fase 2/3: worker persistente e opzioni LLM avanzate ─────────────────────
+
+
+def test_llm_reasoning_and_json_flags_only_when_fast(tmp_path):
+    from app.engine import CloneEngine
+
+    engine = CloneEngine(
+        tmp_path / "cache",
+        fast_engine=True,
+        llm_reasoning_effort="minimal",
+        llm_json_mode=True,
+    )
+    flags, _ = engine._translator_flags("llm")
+    assert flags[flags.index("--openai-reasoning-effort") + 1] == "minimal"
+    assert "--openai-enable-json-mode" in flags
+
+    slow = CloneEngine(
+        tmp_path / "cache2",
+        llm_reasoning_effort="minimal",
+        llm_json_mode=True,
+    )
+    flags, _ = slow._translator_flags("llm")
+    assert "--openai-reasoning-effort" not in flags  # feature OFF
+    assert "--openai-enable-json-mode" not in flags
+
+
+def test_persistent_engine_requires_flags(tmp_path, monkeypatch):
+    from app import engine as engine_module
+    from app.engine import CloneEngine
+
+    worker = tmp_path / "engine_worker.py"
+    worker.write_text("")
+    monkeypatch.setattr(engine_module, "_engine_worker_path", lambda: worker)
+
+    engine = CloneEngine(tmp_path / "cache", fast_engine=True, fast_worker=True)
+    assert engine._persistent_active() is True
+    engine.fast_engine = False
+    assert engine._persistent_active() is False
+    engine.fast_engine = True
+    engine.fast_worker = False
+    assert engine._persistent_active() is False
+
+
+def test_persistent_engine_env_fingerprint_changes(tmp_path):
+    from app.engine import CloneEngine
+
+    engine = CloneEngine(tmp_path / "cache", api_key="k1")
+    env1 = engine._engine_env("en", "it")
+    assert env1["PDF2ZH_OPENAI_API_KEY"] == "k1"
+    engine.api_key = "k2"
+    env2 = engine._engine_env("en", "it")
+    assert env1 != env2
+
+
+def test_worker_client_module_exposes_api():
+    from app import engine_client
+
+    assert hasattr(engine_client, "EngineWorkerClient")
+    assert hasattr(engine_client.EngineWorkerClient, "ensure_started")
+    assert hasattr(engine_client.EngineWorkerClient, "run")
