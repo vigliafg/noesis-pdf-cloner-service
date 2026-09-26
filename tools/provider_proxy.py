@@ -31,6 +31,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,6 +42,10 @@ PROXY_PORT = int(os.environ.get("PROXY_PORT", "8790"))
 PROXY_PROVIDER = os.environ.get("PROXY_PROVIDER", "groq").strip()
 PROXY_UPSTREAM = os.environ.get("PROXY_UPSTREAM", "https://openrouter.ai/api/v1").rstrip("/")
 API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
+# Se nessuna richiesta per questo tempo, il proxy esce (evita processi orfani
+# se l'app termina in modo anomalo). 0 = mai.
+IDLE_TIMEOUT = float(os.environ.get("PROXY_IDLE_TIMEOUT", "1800"))
+_last_activity = time.monotonic()
 # Modelli a cui applicare il pin (match per sottostringa, case-insensitive).
 # "*" = pinna tutto (comportamento storico). Default: solo gpt-oss.
 PROXY_MODELS: tuple[str, ...] = tuple(
@@ -107,11 +113,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send_json(self, status: int, obj: Any) -> None:
         body = json.dumps(obj).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Il client si è disconnesso: non è un errore del proxy.
+            pass
 
     def do_GET(self):  # noqa: N802
         if self.path == "/healthz":
@@ -137,7 +147,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
         self._forward(raw, self.path)
 
+    def _write_raw(self, status: int, content_type: str, data: bytes) -> None:
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def _forward(self, body: bytes, path: str) -> None:
+        global _last_activity
+        _last_activity = time.monotonic()
         url = _upstream_url(path)
         request = urllib.request.Request(url, data=body or None, method=self.command)
         request.add_header("Content-Type", "application/json")
@@ -151,21 +173,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with urllib.request.urlopen(request, timeout=600) as response:
                 data = response.read()
-                self.send_response(response.status)
-                self.send_header(
-                    "Content-Type",
+                self._write_raw(
+                    response.status,
                     response.headers.get("Content-Type", "application/json"),
+                    data,
                 )
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
         except urllib.error.HTTPError as exc:
-            data = exc.read()
-            self.send_response(exc.code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            self._write_raw(
+                exc.code,
+                "application/json",
+                exc.read(),
+            )
         except Exception as exc:  # noqa: BLE001
             self._send_json(502, {"error": f"upstream failed: {exc}"})
 
@@ -186,6 +204,16 @@ def main() -> int:
         file=sys.stderr,
     )
     print(f"NOESIS_PROXY_READY {PROXY_PORT}", file=sys.stdout, flush=True)
+    if IDLE_TIMEOUT > 0:
+        def _watch_idle() -> None:
+            while True:
+                time.sleep(min(30.0, IDLE_TIMEOUT))
+                if time.monotonic() - _last_activity > IDLE_TIMEOUT:
+                    print("proxy: idle timeout, esco", file=sys.stderr, flush=True)
+                    server.shutdown()
+                    return
+
+        threading.Thread(target=_watch_idle, daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

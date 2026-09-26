@@ -266,6 +266,8 @@ Riverbero della feature del desktop `noesis-pdf-cloner` (branch
 - **Fallback**: worker/patch non disponibili → si torna al subprocess.
 - **Proxy provider**: `tools/provider_proxy.py` (model-aware) per pinnare Groq
   su OpenRouter; si punta con `PDF_LLM_BASE_URL=http://127.0.0.1:8790/v1`.
+  Gestisce `BrokenPipeError` e ha **idle-timeout** (`PROXY_IDLE_TIMEOUT`,
+  default 1800 s) per evitare processi orfani.
 
 Modello e base URL sono già configurabili via `PDF_LLM_MODEL`/`PDF_LLM_BASE_URL`.
 
