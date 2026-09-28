@@ -111,12 +111,14 @@ class Settings:
     # Richieste LLM in parallelo dentro una pagina (usato solo dalla feature
     # sperimentale fast_engine, quando il pool viene passato esplicitamente).
     llm_pool_workers: int = 4
-    # Feature sperimentale "motore veloce" (default OFF, reversibile):
-    # wrapper con patch runtime + preset "traduzione rapida".
-    fast_engine: bool = False
+    # Feature "motore veloce": patch runtime + worker persistente.
+    # Default ON (preset "fast" = Bilanciato, allineato al desktop).
+    fast_engine: bool = True
     fast_flags: bool = False
     # Fase 2/3: worker persistente e opzioni LLM avanzate.
-    fast_worker: bool = False
+    fast_worker: bool = True
+    # Preset prestazioni (normal | fast | fastest): governa i default dei flag.
+    performance_preset: str = "fast"
     llm_reasoning_effort: str = ""  # "" | minimal | low | medium | high
     llm_json_mode: bool = False
     # Riconoscimento liste numerate/alfabetiche (patch runtime, opt-in).
@@ -223,6 +225,11 @@ class Settings:
         shell_before = frozenset(os.environ)
         _load_env_file(data_dir)
         cache_root = _env_str("CACHE_ROOT") or None
+        # Preset prestazioni (allineato al desktop): governa i default dei flag.
+        preset = _env_str("PERFORMANCE_PRESET", "fast").strip().lower() or "fast"
+        if preset not in ("normal", "fast", "fastest"):
+            preset = "fast"
+        fast_default = preset in ("fast", "fastest")
         settings = cls(
             host=_env_str("HOST", "127.0.0.1"),
             port=_env_int("PORT", 18080),
@@ -255,9 +262,10 @@ class Settings:
             llm_base_url=_env_str("PDF_LLM_BASE_URL", "https://openrouter.ai/api/v1"),
             engine_cache_version=_env_str("ENGINE_CACHE_VERSION", "1"),
             llm_pool_workers=_env_int("PDF_LLM_POOL_WORKERS", 4),
-            fast_engine=_env_bool("FAST_ENGINE", False),
+            fast_engine=_env_bool("FAST_ENGINE", fast_default),
             fast_flags=_env_bool("FAST_FLAGS", False),
-            fast_worker=_env_bool("FAST_WORKER", False),
+            fast_worker=_env_bool("FAST_WORKER", fast_default),
+            performance_preset=preset,
             llm_reasoning_effort=_env_str("PDF_LLM_REASONING_EFFORT", ""),
             llm_json_mode=_env_bool("PDF_LLM_JSON_MODE", False),
             numeric_lists=_env_bool("NUMERIC_LISTS", False),

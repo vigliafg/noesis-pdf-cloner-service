@@ -324,8 +324,12 @@ SETTINGS_SCHEMA: tuple[SettingSpec, ...] = (
     ),
     SettingSpec(
         "PDF_LLM_MODEL", "str", "inception/mercury-2.5", "engine",
-        desc_it="Modello LLM usato dal motore `llm` (OpenRouter).",
-        desc_en="LLM model used by the `llm` engine (OpenRouter).",
+        desc_it="Modello LLM del motore `llm` (OpenRouter). Consigliati: "
+                "inception/mercury-2.5, openai/gpt-oss-120b, "
+                "qwen/qwen3-30b-a3b-instruct-2507, openai/gpt-6-luna.",
+        desc_en="LLM model for the `llm` engine (OpenRouter). Recommended: "
+                "inception/mercury-2.5, openai/gpt-oss-120b, "
+                "qwen/qwen3-30b-a3b-instruct-2507, openai/gpt-6-luna.",
         field="llm_model",
     ),
     SettingSpec(
@@ -333,6 +337,15 @@ SETTINGS_SCHEMA: tuple[SettingSpec, ...] = (
         desc_it="Endpoint del servizio LLM (OpenRouter).",
         desc_en="LLM service endpoint (OpenRouter).",
         field="llm_base_url",
+    ),
+    SettingSpec(
+        "PERFORMANCE_PRESET", "choice", "fast", "engine",
+        desc_it="Preset prestazioni: normal (tutto off), fast (patch+worker, "
+                "consigliato), fastest (modello LLM veloce).",
+        desc_en="Performance preset: normal (all off), fast (patch+worker, "
+                "recommended), fastest (fast LLM model).",
+        choices=("normal", "fast", "fastest"),
+        field="performance_preset",
     ),
     # ── Chiave (segreto) ────────────────────────────────────────────────────
     SettingSpec(

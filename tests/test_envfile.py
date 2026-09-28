@@ -199,3 +199,36 @@ def test_loader_ignora_ambiente_vuoto(tmp_path, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "")
         settings = Settings.from_env()
     assert settings.openrouter_api_key == "sk-or-file"
+
+
+def test_performance_preset_governa_i_flag_fast(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    data.mkdir()
+    with _with_clean_env():
+        monkeypatch.setenv("DATA_DIR", str(data))
+        monkeypatch.delenv("FAST_ENGINE", raising=False)
+        monkeypatch.delenv("FAST_WORKER", raising=False)
+        monkeypatch.setenv("PERFORMANCE_PRESET", "normal")
+        s = Settings.from_env()
+    assert s.performance_preset == "normal"
+    assert s.fast_engine is False and s.fast_worker is False
+
+    with _with_clean_env():
+        monkeypatch.setenv("DATA_DIR", str(data))
+        monkeypatch.delenv("FAST_ENGINE", raising=False)
+        monkeypatch.delenv("FAST_WORKER", raising=False)
+        monkeypatch.setenv("PERFORMANCE_PRESET", "fast")
+        s2 = Settings.from_env()
+    assert s2.performance_preset == "fast"
+    assert s2.fast_engine is True and s2.fast_worker is True
+
+
+def test_fast_flag_esplicito_vince_sul_preset(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    data.mkdir()
+    with _with_clean_env():
+        monkeypatch.setenv("DATA_DIR", str(data))
+        monkeypatch.setenv("PERFORMANCE_PRESET", "normal")
+        monkeypatch.setenv("FAST_ENGINE", "1")
+        s = Settings.from_env()
+    assert s.fast_engine is True
