@@ -242,3 +242,34 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
 - Per mergiare le PR Dependabot da `gh` serve lo scope: `gh auth refresh -s workflow`.
 
 
+
+---
+
+## 7. Motore veloce (sperimentale, default OFF) — allineato al desktop
+
+Riverbero della feature del desktop `noesis-pdf-cloner` (branch
+`experiment/fast-engine`, tag `pre-fast-engine`/`post-fase1`/`pre-fase2`/
+`post-fase2`). **Default OFF**: a feature spenta il comportamento è invariato.
+
+- **Moduli**: `app/engine_patch.py` (memoizza l'hash dei font, disattiva
+  `MemoryMonitor`), `app/engine_wrapper.py` (launcher), `app/engine_worker.py`
+  (worker persistente) e `app/engine_client.py` (client).
+- **Setting/env**: `fast_engine`/`FAST_ENGINE`, `fast_flags`/`FAST_FLAGS`,
+  `fast_worker`/`FAST_WORKER`, `llm_pool_workers`/`PDF_LLM_POOL_WORKERS`,
+  `llm_reasoning_effort`/`PDF_LLM_REASONING_EFFORT`,
+  `llm_json_mode`/`PDF_LLM_JSON_MODE`, `numeric_lists`/`NUMERIC_LISTS`,
+  `llm_system_prompt`/`PDF_LLM_SYSTEM_PROMPT`.
+- **Nota**: `--openai-reasoning-effort` richiede anche
+  `--openai-send-reasoning-effort` (altrimenti pdf2zh non lo invia).
+- **Kill switch**: `NOESIS_FAST_ENGINE=0`, `NOESIS_FAST_FLAGS=0`.
+- **Cache**: marker `-fast1` (`FAST_ENGINE_TAG`) nel tag di versione.
+- **Fallback**: worker/patch non disponibili → si torna al subprocess.
+- **Proxy provider**: `tools/provider_proxy.py` (model-aware) per pinnare Groq
+  su OpenRouter; si punta con `PDF_LLM_BASE_URL=http://127.0.0.1:8790/v1`.
+  Gestisce `BrokenPipeError` e ha **idle-timeout** (`PROXY_IDLE_TIMEOUT`,
+  default 1800 s) per evitare processi orfani.
+
+Modello e base URL sono già configurabili via `PDF_LLM_MODEL`/`PDF_LLM_BASE_URL`.
+
+Nota: l'allowlist account-wide di OpenRouter è stata valutata e **scartata**
+(globale: blocca DeepSeek/Gemini) a favore del proxy per-richiesta.

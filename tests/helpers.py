@@ -93,4 +93,12 @@ class FakeRunner(JobRunner):
     """Runner di test che usa :class:`FakeEngine`."""
 
     def engine_for(self, job) -> CloneEngine:
-        return FakeEngine(self.settings.cache_root, max_engine_procs=2, page_timeout=30)
+        s = self.settings
+        return FakeEngine(
+            self.settings.cache_root,
+            max_engine_procs=2,
+            page_timeout=30,
+            fast_engine=s.fast_engine,
+            fast_flags=s.fast_flags,
+            fast_worker=s.fast_worker,
+        )
