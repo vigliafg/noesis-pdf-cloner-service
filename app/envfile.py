@@ -185,6 +185,11 @@ class SettingSpec:
     minimum: float | None = None
     maximum: float | None = None
     choices: tuple[str, ...] = ()
+    # Etichette di visualizzazione, parallele a ``choices`` (vuoto = usa i valori).
+    choice_labels: tuple[str, ...] = ()
+    # Se True, un valore "choice" fuori elenco è accettato comunque
+    # (es. modello custom scritto a mano nel file env).
+    allow_custom_value: bool = False
     secret: bool = False
     web_editable: bool = True
     restart_required: bool = True
@@ -323,14 +328,25 @@ SETTINGS_SCHEMA: tuple[SettingSpec, ...] = (
         field="pdf2zh_bin",
     ),
     SettingSpec(
-        "PDF_LLM_MODEL", "str", "inception/mercury-2.5", "engine",
-        desc_it="Modello LLM del motore `llm` (OpenRouter). Consigliati: "
-                "inception/mercury-2.5, openai/gpt-oss-120b, "
-                "qwen/qwen3-30b-a3b-instruct-2507, openai/gpt-6-luna.",
-        desc_en="LLM model for the `llm` engine (OpenRouter). Recommended: "
-                "inception/mercury-2.5, openai/gpt-oss-120b, "
-                "qwen/qwen3-30b-a3b-instruct-2507, openai/gpt-6-luna.",
+        "PDF_LLM_MODEL", "choice", "inception/mercury-2.5", "engine",
+        desc_it="Modello LLM del motore `llm` (OpenRouter). Modelli consigliati "
+                "(modello più veloce/pulito: gpt-oss-120b).",
+        desc_en="LLM model for the `llm` engine (OpenRouter). Recommended models "
+                "(fastest/cleanest: gpt-oss-120b).",
         field="llm_model",
+        choices=(
+            "inception/mercury-2.5",
+            "openai/gpt-oss-120b",
+            "qwen/qwen3-30b-a3b-instruct-2507",
+            "openai/gpt-6-luna",
+        ),
+        choice_labels=(
+            "Mercury — inception/mercury-2.5",
+            "gpt-oss-120B — openai/gpt-oss-120b",
+            "qwen3-30B (economico) — qwen/qwen3-30b-a3b-instruct-2507",
+            "gpt-6-luna — openai/gpt-6-luna",
+        ),
+        allow_custom_value=True,
     ),
     SettingSpec(
         "PDF_LLM_BASE_URL", "str", "https://openrouter.ai/api/v1", "engine",
@@ -345,6 +361,11 @@ SETTINGS_SCHEMA: tuple[SettingSpec, ...] = (
         desc_en="Performance preset: normal (all off), fast (patch+worker, "
                 "recommended), fastest (fast LLM model).",
         choices=("normal", "fast", "fastest"),
+        choice_labels=(
+            "Precisione massima (tutto off)",
+            "Bilanciato (consigliato)",
+            "Massima velocità (modello veloce)",
+        ),
         field="performance_preset",
     ),
     # ── Chiave (segreto) ────────────────────────────────────────────────────
@@ -531,7 +552,7 @@ def validate_value(spec: SettingSpec, raw: str | None) -> str:
         return str(number)
 
     if spec.kind == "choice":
-        if value not in spec.choices:
+        if value not in spec.choices and not spec.allow_custom_value:
             raise InvalidValue(
                 f"{spec.name}: scegli tra {', '.join(spec.choices)} (ricevuto {value!r})"
             )

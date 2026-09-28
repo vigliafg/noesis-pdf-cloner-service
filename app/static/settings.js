@@ -54,8 +54,16 @@ function control(spec) {
     return `<label class="switch"><input type="checkbox" data-name="${name}" ${on}> attivo</label>`;
   }
   if (spec.kind === "choice") {
-    const options = spec.choices
-      .map((c) => `<option value="${esc(c)}" ${c === spec.value ? "selected" : ""}>${esc(c)}</option>`)
+    const labels = Array.isArray(spec.choice_labels) ? spec.choice_labels : [];
+    let choices = spec.choices.slice();
+    // Valore corrente fuori elenco (es. modello custom): mostralo comunque.
+    if (spec.value && !choices.includes(spec.value)) choices = [spec.value].concat(choices);
+    const options = choices
+      .map((c) => {
+        const idx = spec.choices.indexOf(c);
+        const label = idx >= 0 && labels[idx] ? labels[idx] : c;
+        return `<option value="${esc(c)}" ${c === spec.value ? "selected" : ""}>${esc(label)}</option>`;
+      })
       .join("");
     return `<select data-name="${name}">${options}</select>`;
   }

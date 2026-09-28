@@ -163,3 +163,63 @@ def test_verify_key_usa_la_chiave_del_server(admin_client, settings, monkeypatch
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert "sk-or-server" not in response.text
+
+
+# ── allineamento desktop: modello (choice) e preset con etichette ────────────
+
+
+def _spec(client, name):
+    body = client.get("/api/v1/settings").json()
+    return next(s for g in body["groups"] for s in g["settings"] if s["name"] == name)
+
+
+def test_modello_llm_e_choice_con_i_modelli_approvati(admin_client):
+    spec = _spec(admin_client, "PDF_LLM_MODEL")
+    assert spec["kind"] == "choice"
+    assert "inception/mercury-2.5" in spec["choices"]
+    assert "openai/gpt-oss-120b" in spec["choices"]
+    assert "qwen/qwen3-30b-a3b-instruct-2507" in spec["choices"]
+    assert "openai/gpt-6-luna" in spec["choices"]
+    # Etichette parallele alle scelte.
+    assert len(spec["choice_labels"]) == len(spec["choices"])
+
+
+def test_preset_ha_etichette_amichevoli(admin_client):
+    spec = _spec(admin_client, "PERFORMANCE_PRESET")
+    assert spec["kind"] == "choice"
+    assert spec["choices"] == ["normal", "fast", "fastest"]
+    assert spec["choice_labels"][0].startswith("Precisione massima")
+    assert spec["choice_labels"][1].startswith("Bilanciato")
+    assert spec["choice_labels"][2].startswith("Massima velocità")
+
+
+def test_put_modello_e_preset(admin_client, settings):
+    response = admin_client.put(
+        "/api/v1/settings",
+        json={"values": {
+            "PDF_LLM_MODEL": "qwen/qwen3-30b-a3b-instruct-2507",
+            "PERFORMANCE_PRESET": "fastest",
+        }},
+    )
+    assert response.status_code == 200, response.text
+    values = load_env_file(config_path(settings.data_dir))
+    assert values["PDF_LLM_MODEL"] == "qwen/qwen3-30b-a3b-instruct-2507"
+    assert values["PERFORMANCE_PRESET"] == "fastest"
+
+
+def test_put_modello_custom_accettato(admin_client, settings):
+    """Un modello fuori elenco resta salvabile (allow_custom_value)."""
+    response = admin_client.put(
+        "/api/v1/settings",
+        json={"values": {"PDF_LLM_MODEL": "vendor/custom-model-x"}},
+    )
+    assert response.status_code == 200, response.text
+    values = load_env_file(config_path(settings.data_dir))
+    assert values["PDF_LLM_MODEL"] == "vendor/custom-model-x"
+
+
+def test_put_preset_invalido_422(admin_client):
+    response = admin_client.put(
+        "/api/v1/settings", json={"values": {"PERFORMANCE_PRESET": "turbo"}}
+    )
+    assert response.status_code == 422

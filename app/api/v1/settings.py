@@ -121,6 +121,7 @@ def _setting_payload(settings: Settings, spec, file_values: dict[str, str]) -> d
         "minimum": spec.minimum,
         "maximum": spec.maximum,
         "choices": list(spec.choices),
+        "choice_labels": list(spec.choice_labels),
         "in_file": spec.name in file_values,
         "env_override": spec.name in settings.shell_env_keys,
     }
