@@ -1,6 +1,6 @@
 # Handoff — noesis-pdf-cloner-service
 
-*Data: 2026-09-24 · Versione 0.1.0 · Repository pubblico:
+*Data: 2026-09-28 · allineato al desktop 0.1.12 · Repository pubblico:
 `git@github.com:vigliafg/noesis-pdf-cloner-service.git` (SSH, branch `main`).*
 
 Servizio **server + CLI headless** derivato da `noesis-pdf-cloner`: traduce PDF
@@ -43,6 +43,9 @@ priorità e parallelismo a livello pagina.
   `docker run` out-of-the-box; `resources.py` è **cgroup-aware** (autosize
   corretto nei container). Vedi `docs/DOCKER.md` / ADR-017.
 - Retention (`janitor`), metriche Prometheus, seam per auth/quota/OCR/email/audit.
+- **Prestazioni** (allineamento desktop 0.1.12): `PERFORMANCE_PRESET`
+  (`normal|fast|fastest`) e modello LLM come **tendina** in `/settings` (4 modelli
+  approvati); `fast_engine`/`fast_worker` **default ON**.
 
 ## 2. Scelte tecniche
 
@@ -245,17 +248,22 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
 
 ---
 
-## 7. Motore veloce (sperimentale, default OFF) — allineato al desktop
+## 7. Motore veloce (default ON) + preset — allineato al desktop 0.1.12
 
-Riverbero della feature del desktop `noesis-pdf-cloner` (branch
-`experiment/fast-engine`, tag `pre-fast-engine`/`post-fase1`/`pre-fase2`/
-`post-fase2`). **Default OFF**: a feature spenta il comportamento è invariato.
+Riverbero della feature del desktop `noesis-pdf-cloner`, ora **mergiato su `main`**
+(branch storico `experiment/fast-engine`). **Default ON** come il desktop:
+`fast_engine`/`fast_worker` attivi. `PERFORMANCE_PRESET` (`normal|fast|fastest`)
+governa i **default** dei flag (un `FAST_ENGINE` esplicito vince). In `/settings` il
+modello LLM (`PDF_LLM_MODEL`) è una **tendina** con i 4 modelli approvati
+(Mercury · gpt-oss-120b · qwen3-30b-a3b · gpt-6-luna), con `allow_custom_value` per
+modelli fuori elenco. Kill switch: `NOESIS_FAST_ENGINE=0`, `NOESIS_FAST_FLAGS=0`.
 
 - **Moduli**: `app/engine_patch.py` (memoizza l'hash dei font, disattiva
   `MemoryMonitor`), `app/engine_wrapper.py` (launcher), `app/engine_worker.py`
   (worker persistente) e `app/engine_client.py` (client).
 - **Setting/env**: `fast_engine`/`FAST_ENGINE`, `fast_flags`/`FAST_FLAGS`,
-  `fast_worker`/`FAST_WORKER`, `llm_pool_workers`/`PDF_LLM_POOL_WORKERS`,
+  `fast_worker`/`FAST_WORKER`, `performance_preset`/`PERFORMANCE_PRESET`
+  (`normal|fast|fastest`, default `fast`), `llm_pool_workers`/`PDF_LLM_POOL_WORKERS`,
   `llm_reasoning_effort`/`PDF_LLM_REASONING_EFFORT`,
   `llm_json_mode`/`PDF_LLM_JSON_MODE`, `numeric_lists`/`NUMERIC_LISTS`,
   `llm_system_prompt`/`PDF_LLM_SYSTEM_PROMPT`.
