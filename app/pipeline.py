@@ -96,27 +96,37 @@ def run_job(
     done = 0
     failed = 0
     results: list[PageResult] = []
+    # Durata reale per pagina, misurata dentro ``work`` (dall'inizio
+    # dell'esecuzione, non dal submit: esclude l'attesa in coda del pool).
+    page_times: dict[int, int] = {}
+    page_times_lock = threading.Lock()
 
     def work(page: int) -> Path:
-        if cancel_event is not None and cancel_event.is_set():
-            raise TranslationCancelled("annullato")
-        if ocr.is_enabled(settings) and ocr.page_needs_ocr(src, page):
-            if logger:
-                logger.event(
-                    "ocr_required",
-                    f"pagina {page + 1}: nessun testo estraibile (OCR richiesto)",
-                    page=page,
-                    level="warning",
-                )
-        return engine.translate_page(
-            src,
-            doc_key,
-            page,
-            job.engine,
-            job.src_lang,
-            job.dst_lang,
-            cancel_event=cancel_event,
-        )
+        started = time.monotonic()
+        try:
+            if cancel_event is not None and cancel_event.is_set():
+                raise TranslationCancelled("annullato")
+            if ocr.is_enabled(settings) and ocr.page_needs_ocr(src, page):
+                if logger:
+                    logger.event(
+                        "ocr_required",
+                        f"pagina {page + 1}: nessun testo estraibile (OCR richiesto)",
+                        page=page,
+                        level="warning",
+                    )
+            return engine.translate_page(
+                src,
+                doc_key,
+                page,
+                job.engine,
+                job.src_lang,
+                job.dst_lang,
+                cancel_event=cancel_event,
+            )
+        finally:
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            with page_times_lock:
+                page_times[page] = elapsed_ms
 
     cancelled = False
     block_size = max(1, settings.max_pages_per_block)
@@ -139,10 +149,9 @@ def run_job(
             futures = {pool.submit(work, page): page for page in block}
             for future in as_completed(futures):
                 page = futures[future]
-                page_start = time.monotonic()
                 try:
                     future.result()
-                    page_ms = int((time.monotonic() - page_start) * 1000)
+                    page_ms = page_times.get(page, 0)
                     done += 1
                     results.append(PageResult(page=page, ok=True, duration_ms=page_ms))
                     if logger:

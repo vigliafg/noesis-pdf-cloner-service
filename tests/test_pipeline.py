@@ -83,6 +83,23 @@ def test_merged_pdf_keeps_selection_order(settings):
     storage.close()
 
 
+def test_page_durations_are_measured(settings):
+    """Regressione: la durata per pagina misura la traduzione reale (non 0)."""
+    storage, job = _setup(settings, pages=3)
+    engine = SlowFirstEngine(settings.cache_root, delay=0.4)
+    result = run_job(
+        storage=storage, engine=engine, job=job, settings=settings,
+        logger=JobLogger(storage, "j"),
+    )
+    by_page = {r.page: r.duration_ms for r in result.page_results if r.ok}
+    assert len(by_page) == 3
+    assert by_page[0] >= 300, f"durata pagina 1 non misurata: {by_page}"
+    assert all(ms >= 0 for ms in by_page.values())
+    events = [e for e in read_events(storage, "j") if e["stage"] == "translate_page"]
+    assert any(e.get("duration_ms", 0) >= 300 for e in events)
+    storage.close()
+
+
 def test_pages_are_processed_in_blocks(settings):
     """Libri interi: le pagine vengono lavorate a blocchi (ordine preservato)."""
     settings.max_pages_per_block = 2
