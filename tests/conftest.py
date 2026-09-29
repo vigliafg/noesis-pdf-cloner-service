@@ -8,7 +8,7 @@ from app.config import Settings
 from app.context import AppContext
 from app.emailer import Emailer
 from app.janitor import Janitor
-from app.queue import JobQueue
+from app.jobqueue import JobQueue
 from app.security import RateLimiter
 from app.storage import Storage
 

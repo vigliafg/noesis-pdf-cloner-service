@@ -272,6 +272,15 @@ modelli fuori elenco. Kill switch: `NOESIS_FAST_ENGINE=0`, `NOESIS_FAST_FLAGS=0`
 - **Kill switch**: `NOESIS_FAST_ENGINE=0`, `NOESIS_FAST_FLAGS=0`.
 - **Cache**: marker `-fast1` (`FAST_ENGINE_TAG`) nel tag di versione.
 - **Fallback**: worker/patch non disponibili → si torna al subprocess.
+- **Fix 2026-09-29 — shadowing di `queue`**: `app/queue.py` oscurava lo stdlib
+  `queue` nei processi figli del motore (`engine_wrapper.py`/`engine_worker.py`
+  avviati come **script** con `app/` in `sys.path`): `pdf2zh_next` →
+  `logging.handlers` → `import queue` caricava il nostro file e falliva con
+  `ImportError`. Effetto: **ogni** traduzione con i preset `fast`/`fastest` (e
+  col default, che è `fast`) falliva in ~3 s. Riprodotto e corretto rinominando
+  `app/queue.py` → `app/jobqueue.py` (import/test/doc aggiornati) e aggiungendo
+  la guardia `tests/test_module_shadowing.py`. **Nessun riverbero** necessario:
+  il desktop `noesis-pdf-cloner` non ha un modulo `queue.py`.
 - **Proxy provider**: `tools/provider_proxy.py` (model-aware) per pinnare Groq
   su OpenRouter; si punta con `PDF_LLM_BASE_URL=http://127.0.0.1:8790/v1`.
   Gestisce `BrokenPipeError` e ha **idle-timeout** (`PROXY_IDLE_TIMEOUT`,

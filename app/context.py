@@ -8,7 +8,7 @@ from .config import Settings
 from .emailer import Emailer
 from .engine import find_pdf2zh_bin
 from .janitor import Janitor
-from .queue import JobQueue
+from .jobqueue import JobQueue
 from .security import RateLimiter
 from .storage import Storage
 from .worker import JobRunner

@@ -918,7 +918,7 @@ app/
 ├── engine.py        split → pdf2zh_next → cache versionata (+ thumb/labels)
 ├── pipeline.py      CUORE condiviso server/CLI
 ├── cli.py           CLI headless (tqdm, batch)
-├── queue.py         coda a priorità + worker (backend db/memory)
+├── jobqueue.py      coda a priorità + worker (backend db/memory)
 ├── worker.py        runner del server
 ├── worker_main.py   processo worker standalone (multi-processo)
 ├── resources.py     rilevamento risorse e autosizing

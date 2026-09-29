@@ -4,7 +4,7 @@ import threading
 import time
 
 from app.models import DocumentRecord, JobRecord, JobState
-from app.queue import InMemoryQueueBackend, JobQueue
+from app.jobqueue import InMemoryQueueBackend, JobQueue
 from app.storage import Storage
 
 

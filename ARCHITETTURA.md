@@ -96,7 +96,7 @@ evitare errori; log live.
 | `app/migrations.py` | Schema versionato, migrazioni idempotenti |
 | `app/engine.py` | Adattatore headless di `pdf2zh_next`: split, cache, lock, cancel, thumb |
 | `app/pipeline.py` | **Cuore condiviso**: esecuzione job a blocchi, artefatto, usage |
-| `app/queue.py` | `QueueBackend` (db/memory), `JobQueue`, worker |
+| `app/jobqueue.py` | `QueueBackend` (db/memory), `JobQueue`, worker |
 | `app/worker.py` | Costruzione engine per job + metriche |
 | `app/worker_main.py` | Processo worker standalone (multi-processo) |
 | `app/resources.py` | Rilevamento CPU/RAM/disco, autosizing, guardie |

@@ -16,7 +16,7 @@ import threading
 
 from .config import get_settings
 from .logging_setup import configure_logging
-from .queue import JobQueue
+from .jobqueue import JobQueue
 from .storage import Storage
 from .worker import JobRunner
 
