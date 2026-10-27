@@ -37,6 +37,9 @@ jobs:
         run: |
           echo "DATA_DIR=${RUNNER_TEMP}/noesis-e2e" >> "$GITHUB_ENV"
           mkdir -p "${RUNNER_TEMP}/noesis-e2e"
+          # Il container gira come uid 1000 (utente noesis), il runner come 100x:
+          # senza permessi aperti il bind mount non è scrivibile.
+          chmod 777 "${RUNNER_TEMP}/noesis-e2e"
 
       - name: Scarica l'immagine
         run: docker pull "$IMAGE"
