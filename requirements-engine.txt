@@ -3,3 +3,8 @@
 # Richiede Python < 3.14. Versione fissata a quella validata dal desktop.
 # Installato da setup_engine.sh / run.sh.
 pdf2zh_next==2.9.0
+
+# BabelDOC importa `BitStream` da bitstring, rimosso nella 5.0: senza questo
+# limite le installazioni da manifest (macOS/Windows, o fallback senza lock)
+# risolvono bitstring 5.x e il motore non parte più (ImportError).
+bitstring<5

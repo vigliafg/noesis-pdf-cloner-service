@@ -17,10 +17,10 @@ jobs:
       - name: Installa il motore pdf2zh_next
         run: |
           uv venv --python 3.12 .venv2
-          # Lockfile = stesse versioni validate in locale. Fallback al manifest
-          # solo se il lock non è applicabile (es. nuovo runner senza cache).
-          uv pip install --python .venv2/bin/python -q -r requirements-engine.lock \
-            || uv pip install --python .venv2/bin/python -q -r requirements-engine.txt
+          # Lockfile = stesse versioni validate in locale e usate dall'immagine
+          # Docker. Niente fallback al manifest: senza pin risolverebbe
+          # dipendenze nuove (es. bitstring 5) e romperebbe l'import del motore.
+          uv pip install --python .venv2/bin/python -q -r requirements-engine.lock
       - name: Diagnostica installazione
         run: |
           .venv2/bin/python -c "import sys, pdf2zh_next; print(sys.version); print(pdf2zh_next.__file__)"
