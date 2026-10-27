@@ -1,0 +1,195 @@
+name: e2e-nightly
+
+# Test end-to-end notturno del servizio *pubblicato*.
+#
+# Usa l'immagine GHCR `:latest` (motore pdf2zh_next + modelli BabelDOC già
+# inclusi), carica un PDF generato di 2 pagine, avvia un job di traduzione con
+# il motore Google (gratuito, nessuna chiave) e verifica il PDF scaricato.
+#
+# Non blocca le PR e non sostituisce `engine-smoke` (che controlla solo che le
+# dipendenze del motore si installino). Serve a rispondere alla domanda:
+# "il servizio che gli utenti scaricano traduce ancora davvero?".
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: e2e-nightly
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
+  PORT: "18080"
+  DATA_DIR: ${{ runner.temp }}/noesis-e2e
+  ISSUE_TITLE: "e2e-notturno: traduzione di prova fallita"
+
+jobs:
+  e2e:
+    name: traduzione reale (google, 2 pagine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Prepara la cartella dati
+        run: mkdir -p "$DATA_DIR"
+
+      - name: Scarica l'immagine
+        run: docker pull "$IMAGE"
+
+      - name: Avvia il servizio
+        run: |
+          docker run -d --name noesis-e2e \
+            -p "127.0.0.1:${PORT}:18080" \
+            -v "$DATA_DIR:/data" \
+            "$IMAGE"
+
+      - name: Attendi /api/v1/health
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 90); do
+            if curl -fsS "http://127.0.0.1:${PORT}/api/v1/health" > health.json; then
+              python3 - <<'PY'
+          import json
+          body = json.load(open("health.json"))
+          assert body["engine_available"] is True, body
+          print("health:", body["status"], "engine_available:", body["engine_available"])
+          PY
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::il servizio non risponde su /api/v1/health"
+          docker logs noesis-e2e || true
+          exit 1
+
+      - name: Genera un PDF di prova (2 pagine, inglese)
+        run: |
+          docker exec -i noesis-e2e python - <<'PY'
+          import pymupdf
+
+          doc = pymupdf.open()
+          for page_no in (1, 2):
+              page = doc.new_page()
+              page.insert_text(
+                  (72, 90),
+                  "The quick brown fox jumps over the lazy dog.",
+                  fontsize=14,
+              )
+              page.insert_text((72, 120), f"Test page {page_no}.", fontsize=12)
+          doc.save("/data/e2e-input.pdf")
+          print("pagine:", doc.page_count)
+          PY
+
+      - name: Carica il PDF e avvia il job
+        run: |
+          set -euo pipefail
+          doc=$(curl -fsS -F "file=@${DATA_DIR}/e2e-input.pdf" \
+            "http://127.0.0.1:${PORT}/api/v1/documents")
+          doc_id=$(printf '%s' "$doc" | python3 -c 'import json,sys; print(json.load(sys.stdin)["doc_id"])')
+          echo "documento: $doc_id (${doc})"
+
+          job=$(curl -fsS -H 'Content-Type: application/json' \
+            -d "{\"doc_id\":\"${doc_id}\",\"pages\":\"1-2\",\"src_lang\":\"auto\",\"dst_lang\":\"it\",\"engine\":\"google\"}" \
+            "http://127.0.0.1:${PORT}/api/v1/jobs")
+          job_id=$(printf '%s' "$job" | python3 -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
+          echo "job: $job_id (${job})"
+          echo "DOC_ID=$doc_id" >> "$GITHUB_ENV"
+          echo "JOB_ID=$job_id" >> "$GITHUB_ENV"
+
+      - name: Attendi la traduzione
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 240); do
+            body=$(curl -fsS "http://127.0.0.1:${PORT}/api/v1/jobs/${JOB_ID}")
+            state=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')
+            echo "$body" > job.json
+            echo "job ${JOB_ID}: ${state}"
+            case "$state" in
+              done) break ;;
+              error|cancelled|interrupted)
+                echo "::error::job terminato in stato ${state}"
+                cat job.json
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+          python3 - <<'PY'
+          import json
+
+          body = json.load(open("job.json"))
+          assert body["state"] == "done", body
+          assert body["pages_failed"] == 0, body
+          assert not body.get("error"), body
+          print("traduzione:", body["pages_done"], "/", body["pages_total"], "pagine")
+          PY
+
+      - name: Verifica il PDF scaricato
+        run: |
+          set -euo pipefail
+          curl -fsS "http://127.0.0.1:${PORT}/api/v1/jobs/${JOB_ID}/download" \
+            -o "${DATA_DIR}/e2e-output.pdf"
+          docker exec -i noesis-e2e python - <<'PY'
+          import pymupdf
+
+          doc = pymupdf.open("/data/e2e-output.pdf")
+          text = "\n".join(page.get_text() for page in doc)
+          print("pagine:", doc.page_count)
+          print("testo:", text[:400].replace("\n", " "))
+          assert doc.page_count == 2, doc.page_count
+          assert text.strip(), "output senza testo"
+          assert "quick brown fox" not in text.lower(), "testo non tradotto"
+          PY
+
+      - name: Raccogli i log del container
+        if: always()
+        run: docker logs noesis-e2e > docker.log 2>&1 || true
+
+      - name: Pubblica gli artefatti
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-nightly
+          path: |
+            docker.log
+            job.json
+            ${{ runner.temp }}/noesis-e2e/e2e-input.pdf
+            ${{ runner.temp }}/noesis-e2e/e2e-output.pdf
+          if-no-files-found: ignore
+
+      - name: Ferma il servizio
+        if: always()
+        run: docker rm -f noesis-e2e || true
+
+      - name: Segnala il fallimento su una issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          body=$(printf 'Il test end-to-end notturno è fallito.\n\n- Run: %s/%s/actions/runs/%s\n- Immagine: `%s`\n- Commit: `%s`\n\nLog e PDF di prova sono negli artefatti della run.' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$IMAGE" "$GITHUB_SHA")
+          number=$(gh issue list -R "$GITHUB_REPOSITORY" --state open \
+            --search "$ISSUE_TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" -R "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --body "$body"
+          fi
+
+      - name: Chiudi la segnalazione se il test torna verde
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          number=$(gh issue list -R "$GITHUB_REPOSITORY" --state open \
+            --search "$ISSUE_TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue close "$number" -R "$GITHUB_REPOSITORY" \
+              --comment "Il test e2e notturno è tornato verde (run $GITHUB_RUN_ID)."
+          fi
