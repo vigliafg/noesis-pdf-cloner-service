@@ -128,3 +128,5 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+          # Idempotente: un re-tag può riusare la release esistente.
+          overwrite_files: true
