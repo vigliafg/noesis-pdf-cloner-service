@@ -125,10 +125,19 @@ jobs:
           cd artifacts
           sha256sum * > SHA256SUMS.txt
 
+      - name: Read release notes
+        id: notes
+        run: |
+          {
+            echo 'body<<RELEASE_NOTES_EOF'
+            cat RELEASE_NOTES.md
+            echo 'RELEASE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
-          body_path: RELEASE_NOTES.md
+          body: ${{ steps.notes.outputs.body }}
           # Idempotente: un re-tag può riusare la release esistente.
           overwrite_files: true
