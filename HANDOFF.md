@@ -246,6 +246,19 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
   upload-pages-artifact v5.0.0, setup-qemu v4.4.0, setup-buildx v4.4.1).
 - Per mergiare le PR Dependabot da `gh` serve lo scope: `gh auth refresh -s workflow`.
 
+### Note CI (27/10/2026)
+
+- **engine-smoke** ✅ di nuovo verde (prima era rosso dal 12/10). Causa:
+  BabelDOC importa `BitStream` da `bitstring`, rimosso nella 5.0; le
+  installazioni da manifest (macOS/Windows e il vecchio fallback CI senza lock)
+  risolvevano `bitstring 5.x` → `ImportError` all'avvio di `pdf2zh_next`.
+  Fix: `bitstring<5` in `requirements-engine.txt` e `engine-smoke` installa
+  **solo** dal lockfile (stesse versioni dell'immagine Docker). Verificato con
+  `workflow_dispatch`: `pdf2zh-next 2.9.0`, `babeldoc 0.6.2`, `bitstring 4.4.0`.
+- **docker** ✅: l'immagine usa già il lockfile, quindi la 0.1.12 non era
+  affetta dal problema; il job `docker` resta la verifica settimanale del
+  motore reale nel container.
+
 
 
 ---
