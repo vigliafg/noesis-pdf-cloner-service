@@ -258,6 +258,12 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
 - **docker** ✅: l'immagine usa già il lockfile, quindi la 0.1.12 non era
   affetta dal problema; il job `docker` resta la verifica settimanale del
   motore reale nel container.
+- **e2e-nightly** 🆕 (ogni notte, 03:30 UTC): test end-to-end sull'immagine
+  `:latest` pubblicata su GHCR — carica un PDF generato di 2 pagine, avvia un
+  job con il motore Google e verifica il PDF scaricato (2 pagine, testo
+  tradotto). Su fallimento apre/aggiorna la issue `e2e-notturno: traduzione di
+  prova fallita`; quando torna verde la chiude. Non blocca le PR. Primo ciclo:
+  verde in ~30 s di traduzione (`2/2` pagine).
 
 
 
