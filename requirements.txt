@@ -9,8 +9,9 @@ markdown>=3.5
 # Modelli e validazione
 pydantic>=2.7
 
-# PDF: split, merge, render miniature, lettura /PageLabels
-pymupdf>=1.24
+# PDF: split, merge, render miniature, lettura /PageLabels.
+# Restare sulla serie 1.x (stessa del desktop e del motore layout).
+pymupdf>=1.24,<2
 
 # CLI: barra di avanzamento
 tqdm>=4.66
