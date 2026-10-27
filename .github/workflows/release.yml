@@ -125,19 +125,35 @@ jobs:
           cd artifacts
           sha256sum * > SHA256SUMS.txt
 
-      - name: Read release notes
-        id: notes
-        run: |
-          {
-            echo 'body<<RELEASE_NOTES_EOF'
-            cat RELEASE_NOTES.md
-            echo 'RELEASE_NOTES_EOF'
-          } >> "$GITHUB_OUTPUT"
+      # softprops riusa una release per tag solo se è pubblicata: un draft
+      # avanzato da un run precedente verrebbe adottato *senza* aggiornarne il
+      # corpo (e tenendo asset vecchi). La si elimina e la si ricrea da zero.
+      - name: Delete an existing release for this tag
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            const { owner, repo } = context.repo;
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            for (const release of releases.filter((r) => r.tag_name === tag)) {
+              await github.rest.repos.deleteRelease({
+                owner,
+                repo,
+                release_id: release.id,
+              });
+              core.info(
+                `Deleted release ${tag} (${release.id}, draft=${release.draft})`,
+              );
+            }
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
-          body: ${{ steps.notes.outputs.body }}
+          body_path: ${{ github.workspace }}/RELEASE_NOTES.md
           # Idempotente: un re-tag può riusare la release esistente.
           overwrite_files: true
