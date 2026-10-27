@@ -25,6 +25,7 @@ Rispondere in **italiano**.
 - Motore di clonazione: `./setup_engine.sh` crea `.venv2` con `pdf2zh_next`.
 - Server: `./run.sh` (all) · `ROLE=api ./run-api.sh` · `WORKER_COUNT=N ./run-worker.sh`.
 - CLI: `./run-cli.sh …` (headless, batch, `tqdm`). `./run-cli.sh --check`.
+- TUI: `./noesis tui` (o `./noesis` da terminale) — pipeline in-process, nessun server.
 
 ## Convenzioni tecniche
 - **Porta standard del servizio: 18080** (non 8000).

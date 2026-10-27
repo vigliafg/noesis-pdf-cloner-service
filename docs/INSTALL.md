@@ -11,7 +11,7 @@ bootstrap.sh / bootstrap.ps1    opzionale: clona il repo e installa
         ▼
 tools/noesis.py                 unica fonte di verità
    install · start · stop · restart · status · logs
-   doctor · open · service · bundle · update · uninstall
+   doctor · open · service · bundle · update · uninstall · tui
 ```
 
 ## Requisiti
@@ -45,7 +45,11 @@ irm https://raw.githubusercontent.com/vigliafg/noesis-pdf-cloner-service/main/bo
 ```
 
 A fine installazione la console stampa gli URL (locale + LAN) e, se c'è una
-sessione grafica, apre il browser.
+sessione grafica, apre il browser. L'installazione include anche le dipendenze
+della **TUI** (`requirements-tui.txt`, Textual): da un terminale,
+`./noesis` senza argomenti apre l'interfaccia interattiva. Per un'installazione
+solo servizio (senza TUI) usa `./install.sh --no-tui`; i wheel della TUI sono
+inclusi nei bundle offline creati da questa versione.
 
 Durante l'installazione, se la chiave non è già presente, la console chiede la
 **chiave OpenRouter** (opzionale, serve solo al motore `llm`): input **nascosto**,
@@ -71,6 +75,7 @@ processo lo segnala **prima** di avviare.
 | `./noesis config` | mostra/modifica la configurazione (`--show`/`--set`/`--unset`/`--list`) |
 | `./noesis doctor` | diagnosi completa (cosa manca e perché) |
 | `./noesis open` | apre il frontend nel browser |
+| `./noesis tui` (o `./noesis`) | TUI interattiva nel terminale (senza server) |
 | `./noesis service install\|uninstall\|status` | gestione del servizio |
 | `./noesis bundle` | crea un pacchetto **offline** |
 | `./noesis update` | `git pull` + aggiorna le dipendenze |

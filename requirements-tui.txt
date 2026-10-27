@@ -1,0 +1,5 @@
+# ── TUI interattiva (venv .venv) ──────────────────────────────────────────
+# Usata da `./noesis tui` (app/tui). Il server e l'immagine Docker NON la
+# installano: `Dockerfile` usa solo requirements.txt.
+# Textual porta con sé Rich (rendering) e fornisce schermate, form e worker.
+textual>=8,<9

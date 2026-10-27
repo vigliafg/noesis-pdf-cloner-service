@@ -21,10 +21,12 @@ scegli**, senza stravolgere l'impaginazione: testo, immagini, tabelle e numeri d
 pagina restano al loro posto, cambia solo la lingua. Alla fine ottieni un **PDF
 tradotto** da scaricare oppure un **file ZIP** con le pagine tradotte una per una.
 
-Si usa in due modi:
+Si usa in tre modi:
 
 - dal **browser** (interfaccia web): carichi il PDF, scegli le pagine, la lingua
   e il motore di traduzione, premi il pulsante e scarichi il risultato;
+- dal **terminale** (TUI): `./noesis` apre una procedura guidata a 5 passi, senza
+  server e senza browser (vedi [TUI](#tui-terminale-senza-server));
 - da **riga di comando** (CLI): per lavorare su molti PDF in blocco, anche senza
   aprire il browser.
 
@@ -55,7 +57,8 @@ PDF tradotto — con l'impaginazione dell'originale.
   una lista (`3,5,10-12`) oppure **tutto il libro** (`all`).
 - **Due formati di uscita**: un **PDF unico** con le pagine tradotte, oppure uno
   **ZIP** con le pagine tradotte singolarmente.
-- **Interfaccia web** con caricamento drag&drop **e CLI** per l'uso in blocco.
+- **Interfaccia web** con caricamento drag&drop, **TUI** guidata nel terminale
+  (nessun server richiesto) **e CLI** per l'uso in blocco.
 
 ### Come ti evita gli errori (punti chiave)
 
@@ -287,7 +290,8 @@ interno (thread). Per separare API e worker vedi **Deployment scalabile** più
 sotto.
 
 Installando il pacchetto (`pip install -e .`) è disponibile anche il comando
-`noesis-cloner`.
+`noesis-cloner`. Per l'uso guidato nel terminale c'è la TUI (`./noesis tui`),
+che usa la stessa pipeline e la stessa cache.
 
 ### Metodo E — Macchina senza Internet (bundle offline)
 
@@ -324,6 +328,41 @@ macOS arm64 ≠ Windows).
 8. Premi **Traduci** e segui l'avanzamento in tempo reale; a fine lavoro
    **scarica** il risultato.
 
+## TUI (terminale, senza server)
+
+Se preferisci un'interfaccia guidata nel terminale — senza aprire il browser e
+senza imparare i flag — usa la TUI:
+
+```bash
+./noesis            # da un terminale: apre la TUI (equivale a ./noesis tui)
+./noesis tui        # esplicito
+```
+
+Cinque passi, gli stessi del wizard web: **file → pagine → lingue → motore →
+output**. Al posto delle miniature vedi il **numero fisico** e l'**etichetta
+stampata** (`/PageLabels`) della prima e dell'ultima pagina scelta, più le prime
+righe di testo: serve a non sbagliare selezione sui libri con numerazione
+diversa. Durante la traduzione vedi l'avanzamento pagina per pagina e il log;
+**Esc** annulla (le pagine già tradotte restano in cache). A fine lavoro il file
+è copiato nella cartella scelta, senza sovrascrivere eventuali omonimi
+(`-2`, `-3`, …).
+
+La TUI è **locale e in-process**: usa la stessa pipeline, la stessa cache e lo
+stesso `noesis.env` del servizio, ma non richiede che il server sia avviato. Se
+il server **è** attivo sulla stessa cartella dati, la TUI non avvia job: evita la
+doppia esecuzione. In quel caso premi `w` dalla Home per usare l'interfaccia web
+(la TUI non fa da client dell'API: è un seam futuro).
+
+Limiti noti: niente vista affiancata originale/tradotto (il terminale non
+renderizza le pagine); se chiudi il terminale durante un job, il motore può
+restare attivo per la pagina in corso (poi si spegne da solo; il lavoro riparte
+dalla cache). Testata su Linux/macOS/WSL; su Windows nativo funziona in Windows
+Terminal ma non è un requisito di rilascio.
+
+Dipendenze: `requirements-tui.txt` (Textual), installate da `./noesis install`
+(`--no-tui` per un'installazione solo servizio). Non sono incluse
+nell'immagine Docker.
+
 ## Gestione quotidiana (console `noesis`)
 
 Dopo l'installazione, tutte le operazioni si fanno con un solo comando:
@@ -337,6 +376,7 @@ Dopo l'installazione, tutte le operazioni si fanno con un solo comando:
 | `./noesis config` | mostra o modifica la configurazione (`--show`/`--set`/`--list`) |
 | `./noesis doctor` | diagnostica completa dell'installazione |
 | `./noesis open` | apre il frontend nel browser |
+| `./noesis tui` (o `./noesis`) | interfaccia interattiva nel terminale |
 | `./noesis update` | aggiorna codice e dipendenze |
 | `./noesis uninstall` | disinstalla (scelta interattiva di cosa rimuovere) |
 
@@ -669,16 +709,18 @@ variabile `OPENROUTER_API_KEY`).
 Exit code: `0` ok, `1` fallimenti parziali, `2` errore fatale.
 
 Installando il pacchetto (`pip install -e .`) è disponibile anche il comando
-`noesis-cloner`.
+`noesis-cloner`. Per l'uso guidato nel terminale c'è la TUI (`./noesis tui`),
+che usa la stessa pipeline e la stessa cache.
 
 ## Stato del progetto
 
-**Funzionante** (v0.1.12, allineata al desktop 0.1.12). Verificato end-to-end su
-un PDF reale (`ha22.pdf`, 4.132 pagine): upload, anteprima, stima, coda,
-traduzione, download — sia da **server** sia da **CLI**. Motore
-`pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`. Test: **334 passed**
-(`pytest`, motore fittizio, nessuna rete). Disponibile anche come **immagine
-Docker multi-arch**.
+**Funzionante** (v0.2.0, allineata al desktop 0.2.0). Verificato end-to-end su
+PDF reali del corpus: upload, anteprima, stima, coda, traduzione, download — da
+**server**, **TUI** e **CLI**; 10 casi e2e da 10 pagine per la TUI e 10 per il
+desktop, con controllo del PDF prodotto (pagine, testo tradotto, formato,
+lunghezza, italiano). Motore `pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`.
+Test: **368 passed** (`pytest`, motore fittizio, nessuna rete). Disponibile anche
+come **immagine Docker multi-arch**.
 
 ## Release
 
@@ -693,8 +735,8 @@ Le release sono **multipiattaforma**, sullo stesso schema dei desktop:
 | GHCR | linux/amd64 + linux/arm64 | `ghcr.io/vigliafg/noesis-pdf-cloner-service` |
 
 Il workflow `.github/workflows/release.yml` parte con un tag `v*`; `docker.yml`
-pubblica sulla stessa tag le immagini **multi-arch** (`v0.1.12`, `0.1.12`,
-`0.1`, `latest`, `sha-<commit>`). Ogni release include `SHA256SUMS.txt`.
+pubblica sulla stessa tag le immagini **multi-arch** (`v0.2.0`, `0.2.0`,
+`0.2`, `latest`, `sha-<commit>`). Ogni release include `SHA256SUMS.txt`.
 
 > I binari standalone contengono **la CLI** (`noesis-cloner`): il server si
 > esegue da checkout/`pip install` o dall'immagine Docker. Il motore
@@ -702,8 +744,8 @@ pubblica sulla stessa tag le immagini **multi-arch** (`v0.1.12`, `0.1.12`,
 > via Docker, dove è già incluso). È la stessa separazione del desktop.
 
 ```bash
-git tag v0.1.12
-git push origin v0.1.12
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 ## Architettura
@@ -971,6 +1013,8 @@ app/
 ├── engine.py        split → pdf2zh_next → cache versionata (+ thumb/labels)
 ├── pipeline.py      CUORE condiviso server/CLI
 ├── cli.py           CLI headless (tqdm, batch)
+├── job_factory.py   engine + documento + job condivisi (CLI/TUI)
+├── tui/             TUI Textual: client locale della pipeline
 ├── jobqueue.py      coda a priorità + worker (backend db/memory)
 ├── worker.py        runner del server
 ├── worker_main.py   processo worker standalone (multi-processo)

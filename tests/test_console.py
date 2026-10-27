@@ -882,7 +882,10 @@ def test_create_and_install_bundle(tmp_path, monkeypatch):
     assert any("models/babeldoc/model.bin" in n for n in names)
 
     calls: list[Path | None] = []
-    monkeypatch.setattr(noesis, "ensure_service_venv", lambda uv, ui, offline=None: calls.append(offline))
+    monkeypatch.setattr(
+        noesis, "ensure_service_venv",
+        lambda uv, ui, offline=None, with_tui=True: calls.append(offline),
+    )
     monkeypatch.setattr(noesis, "ensure_engine_venv", lambda uv, ui, offline=None: calls.append(offline))
     target = tmp_path / "restored" / "babeldoc"
     monkeypatch.setattr(noesis, "babeldoc_cache_dir", lambda: target)
@@ -919,8 +922,8 @@ def test_handlers_cover_all_commands():
 def _install_args(tmp_path, **over):
     base = dict(
         data_dir=str(tmp_path), host=None, port=None, bundle=None,
-        no_engine=False, skip_warm=True, no_service=True, no_browser=True,
-        ci=False, mode="user", open_firewall=False,
+        no_engine=False, no_tui=False, skip_warm=True, no_service=True,
+        no_browser=True, ci=False, mode="user", open_firewall=False,
     )
     base.update(over)
     return argparse.Namespace(**base)
@@ -929,7 +932,10 @@ def _install_args(tmp_path, **over):
 def _patch_install_heavy(monkeypatch):
     monkeypatch.setattr(noesis, "DRY_RUN", False)
     monkeypatch.setattr(noesis, "ensure_uv", lambda ui: "/usr/bin/uv")
-    monkeypatch.setattr(noesis, "ensure_service_venv", lambda uv, ui, offline=None: None)
+    monkeypatch.setattr(
+        noesis, "ensure_service_venv",
+        lambda uv, ui, offline=None, with_tui=True: None,
+    )
     monkeypatch.setattr(noesis, "ensure_engine_venv", lambda uv, ui, offline=None: None)
     monkeypatch.setattr(noesis, "warm_engine", lambda ui: True)
     monkeypatch.setattr(noesis, "detect_firewall", lambda: None)
@@ -1341,3 +1347,72 @@ def _cp(returncode: int, stdout: str = ""):
     import subprocess
 
     return subprocess.CompletedProcess([], returncode, stdout, "")
+
+
+# ── TUI ─────────────────────────────────────────────────────────────────────
+
+
+def test_ensure_service_venv_includes_tui(tmp_path, monkeypatch):
+    seen: list[str] = []
+    monkeypatch.setattr(noesis, "service_venv", lambda: tmp_path / "venv")
+    monkeypatch.setattr(noesis, "ensure_venv", lambda uv, venv, ui: None)
+    monkeypatch.setattr(
+        noesis,
+        "install_requirements",
+        lambda uv, venv, reqs, ui, offline=None: seen.extend(reqs),
+    )
+    noesis.ensure_service_venv("uv", _ui())
+    assert noesis.REQUIREMENTS in seen
+    assert noesis.REQUIREMENTS_TUI in seen
+
+    seen.clear()
+    noesis.ensure_service_venv("uv", _ui(), with_tui=False)
+    assert noesis.REQUIREMENTS in seen
+    assert noesis.REQUIREMENTS_TUI not in seen
+
+
+def test_cmd_tui_dry_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "DRY_RUN", True)
+    monkeypatch.setattr(noesis, "_interactive_tty", lambda: True)
+    monkeypatch.setattr(noesis, "ensure_uv", lambda ui: "/usr/bin/uv")
+    monkeypatch.setattr(
+        noesis, "ensure_service_venv",
+        lambda uv, ui, offline=None, with_tui=True: None,
+    )
+    monkeypatch.setattr(noesis, "ensure_data_dirs", lambda data_dir: None)
+    monkeypatch.setattr(
+        noesis, "build_env", lambda data_dir, **kw: {"DATA_DIR": str(data_dir)}
+    )
+    ui = noesis.UI(quiet=True, color=False)
+    assert noesis.cmd_tui(argparse.Namespace(data_dir=str(tmp_path)), ui) == 0
+    assert "app.tui" in " ".join(e["message"] for e in ui.events)
+
+
+def test_cmd_tui_requires_terminal(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "_interactive_tty", lambda: False)
+    ui = noesis.UI(quiet=True, color=False)
+    assert noesis.cmd_tui(argparse.Namespace(data_dir=str(tmp_path)), ui) == 2
+    assert "terminale interattivo" in " ".join(e["message"] for e in ui.events)
+
+
+def test_no_args_opens_tui_on_terminal(monkeypatch):
+    called: list[str] = []
+    monkeypatch.setattr(noesis, "_configure_stdio", lambda: None)
+    monkeypatch.setattr(noesis, "_interactive_tty", lambda: True)
+    monkeypatch.setattr(
+        noesis, "cmd_tui", lambda args, ui: called.append(args.data_dir) or 0
+    )
+    assert noesis.main([]) == 0
+    assert len(called) == 1
+
+
+def test_no_args_prints_help_without_terminal(monkeypatch, capsys):
+    monkeypatch.setattr(noesis, "_configure_stdio", lambda: None)
+    monkeypatch.setattr(noesis, "_interactive_tty", lambda: False)
+    assert noesis.main([]) == 0
+    assert "usage" in capsys.readouterr().out.lower()
+
+
+def test_tui_command_parses():
+    args = noesis.build_parser().parse_args(["tui"])
+    assert args.command == "tui"

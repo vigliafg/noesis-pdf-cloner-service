@@ -54,6 +54,7 @@ DEFAULT_PORT = 18080
 DEFAULT_HOST = "0.0.0.0"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REQUIREMENTS = "requirements.txt"
+REQUIREMENTS_TUI = "requirements-tui.txt"
 REQUIREMENTS_ENGINE = "requirements-engine.txt"
 REQUIREMENTS_ENGINE_LOCK = "requirements-engine.lock"
 PYTHON_VERSION = "3.12"
@@ -664,11 +665,16 @@ def install_requirements(uv: str, venv: Path, requirements: Iterable[str], ui: U
     run_command(cmd, ui=ui)
 
 
-def ensure_service_venv(uv: str, ui: UI, *, offline: Path | None = None) -> None:
+def ensure_service_venv(
+    uv: str, ui: UI, *, offline: Path | None = None, with_tui: bool = True
+) -> None:
     venv = service_venv()
     ensure_venv(uv, venv, ui)
     ui.info("installo le dipendenze del servizio…")
-    install_requirements(uv, venv, [REQUIREMENTS], ui, offline=offline)
+    manifests = [REQUIREMENTS]
+    if with_tui:
+        manifests.append(REQUIREMENTS_TUI)
+    install_requirements(uv, venv, manifests, ui, offline=offline)
 
 
 def ensure_engine_venv(uv: str, ui: UI, *, offline: Path | None = None) -> None:
@@ -1378,7 +1384,7 @@ def download_wheels(uv: str, dest: Path, ui: UI) -> None:
         ensure_venv(uv, helper, ui)
         run_command([uv, "pip", "install", "--python", str(venv_python_in(helper)), "-q", "pip"], ui=ui)
         cmd = [str(venv_python_in(helper)), "-m", "pip", "download", "-d", str(dest)]
-        for name in (REQUIREMENTS, engine_requirement()):
+        for name in (REQUIREMENTS, REQUIREMENTS_TUI, engine_requirement()):
             if (REPO_ROOT / name).is_file():
                 cmd += ["-r", str(REPO_ROOT / name)]
         run_command(cmd, ui=ui)
@@ -1457,7 +1463,7 @@ def cmd_install(args: argparse.Namespace, ui: UI) -> int:
     if args.bundle:
         install_from_bundle(uv, data_dir, Path(args.bundle), ui)
     else:
-        ensure_service_venv(uv, ui)
+        ensure_service_venv(uv, ui, with_tui=not args.no_tui)
         if not args.no_engine:
             ensure_engine_venv(uv, ui)
     if not args.no_engine and not args.skip_warm and not args.bundle:
@@ -1855,7 +1861,7 @@ def cmd_update(args: argparse.Namespace, ui: UI) -> int:
         ui.info("aggiorno il codice (git pull)…")
         run_command(["git", "-C", str(REPO_ROOT), "pull", "--ff-only"], check=False, ui=ui)
     uv = ensure_uv(ui)
-    ensure_service_venv(uv, ui)
+    ensure_service_venv(uv, ui, with_tui=not args.no_tui)
     if not args.no_engine:
         ensure_engine_venv(uv, ui)
     ui.ok("aggiornamento completato; riavvia con `noesis restart`")
@@ -2094,6 +2100,34 @@ def cmd_cli(args: argparse.Namespace, ui: UI) -> int:
     return 0  # pragma: no cover
 
 
+def _interactive_tty() -> bool:
+    """Vero solo su un terminale vero (non pipe, non CI, non output ridiretto)."""
+    try:
+        return bool(sys.stdin.isatty() and sys.stdout.isatty())
+    except (AttributeError, ValueError):  # pragma: no cover - stdin chiuso
+        return False
+
+
+def cmd_tui(args: argparse.Namespace, ui: UI) -> int:
+    """Avvia la TUI: client locale della pipeline, senza server né porta."""
+    data_dir = Path(args.data_dir).expanduser()
+    if not _interactive_tty():
+        ui.error(
+            "la TUI richiede un terminale interattivo; per gli script usa `noesis cli`"
+        )
+        return 2
+    ensure_data_dirs(data_dir)
+    uv = ensure_uv(ui)
+    ensure_service_venv(uv, ui)
+    env = build_env(data_dir)
+    cmd = [str(venv_python_in(service_venv())), "-m", "app.tui"]
+    if DRY_RUN:
+        ui.info(f"[dry-run] {' '.join(cmd)}")
+        return 0
+    os.execvpe(cmd[0], cmd, env)
+    return 0  # pragma: no cover
+
+
 def _open_browser(host: str, port: int, ui: UI) -> None:
     target = server_urls(host, port)[-1]
     try:
@@ -2124,6 +2158,7 @@ def build_parser() -> argparse.ArgumentParser:
     _common(install)
     install.add_argument("--no-service", action="store_true", help="non installare il servizio")
     install.add_argument("--no-engine", action="store_true", help="non installare il motore pdf2zh_next")
+    install.add_argument("--no-tui", action="store_true", help="non installare le dipendenze della TUI (Textual)")
     install.add_argument("--skip-warm", action="store_true", help="non scaricare i modelli ora")
     install.add_argument("--no-browser", action="store_true", help="non aprire il browser")
     install.add_argument("--open-firewall", action="store_true", help="apri la porta nel firewall (sudo)")
@@ -2172,6 +2207,7 @@ def build_parser() -> argparse.ArgumentParser:
     update = sub.add_parser("update", help="aggiorna codice e dipendenze")
     _common(update)
     update.add_argument("--no-engine", action="store_true")
+    update.add_argument("--no-tui", action="store_true")
 
     uninstall = sub.add_parser(
         "uninstall", help="rimuovi il servizio (scelta interattiva di cosa rimuovere)"
@@ -2197,6 +2233,9 @@ def build_parser() -> argparse.ArgumentParser:
     clip.add_argument("--data-dir", default=str(default_data_dir()))
     clip.add_argument("extra", nargs=argparse.REMAINDER)
 
+    tuip = sub.add_parser("tui", help="interfaccia interattiva nel terminale")
+    _common(tuip)
+
     return parser
 
 
@@ -2217,6 +2256,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, UI], int]] = {
     "run": cmd_run,
     "worker": cmd_worker,
     "cli": cmd_cli,
+    "tui": cmd_tui,
 }
 
 
@@ -2237,6 +2277,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.command:
+        DRY_RUN = False
+        # `./noesis` senza argomenti: TUI per l'utente occasionale, ma solo su
+        # un terminale vero. In pipe, script e CI resta l'help (comportamento
+        # storico), così nessuna automazione si blocca in una UI.
+        if _interactive_tty():
+            ui = UI()
+            try:
+                code = cmd_tui(
+                    argparse.Namespace(data_dir=str(default_data_dir())), ui
+                )
+            except CommandError as exc:
+                ui.error(str(exc))
+                code = 1
+            ui.finish()
+            return code
         parser.print_help()
         return 0
     DRY_RUN = bool(getattr(args, "dry_run", False))

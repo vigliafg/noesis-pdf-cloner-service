@@ -21,7 +21,6 @@ import shutil
 import sys
 import threading
 import time
-import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -35,19 +34,15 @@ from .engine import (
     EngineError,
     find_pdf2zh_bin,
 )
+from .job_factory import build_engine, create_document_and_job
 from .logging_setup import configure_logging
 from .models import (
     ENGINE_ALIASES,
     LANGUAGES,
-    DocumentRecord,
-    JobRecord,
-    JobState,
     RangeMode,
     normalize_engine,
 )
-from .pages import parse_pages
 from .pipeline import run_job
-from .security import sanitize_stem
 from .storage import Storage
 
 log = logging.getLogger("noesis.cli")
@@ -174,44 +169,8 @@ def _settings_from_args(args) -> Settings:
 
 
 def _make_engine(settings: Settings) -> CloneEngine:
-    return CloneEngine(
-        settings.cache_root,
-        pdf2zh_bin=settings.pdf2zh_bin,
-        max_engine_procs=settings.max_engine_procs,
-        page_timeout=settings.page_timeout,
-        cache_version=settings.engine_cache_version,
-        llm_model=settings.llm_model,
-        llm_base_url=settings.llm_base_url,
-        llm_timeout=settings.llm_timeout,
-        qps_google=settings.qps_google,
-        qps_bing=settings.qps_bing,
-        api_key=settings.openrouter_api_key,
-        llm_pool_workers=settings.llm_pool_workers,
-        fast_engine=settings.fast_engine,
-        fast_flags=settings.fast_flags,
-        fast_worker=settings.fast_worker,
-        llm_reasoning_effort=settings.llm_reasoning_effort,
-        llm_json_mode=settings.llm_json_mode,
-        numeric_lists=settings.numeric_lists,
-        llm_system_prompt=settings.llm_system_prompt,
-    )
-
-
-def _register_document(storage: Storage, engine: CloneEngine, pdf: Path) -> DocumentRecord:
-    doc_id = uuid.uuid4().hex
-    doc_key = engine.doc_key(pdf)
-    document = DocumentRecord(
-        doc_id=doc_id,
-        filename=pdf.name,
-        sha256=doc_key,
-        page_count=CloneEngine.page_count(pdf),
-        path=str(pdf),
-        page_labels=CloneEngine.page_labels(pdf),
-        owner_id="cli",
-        size_bytes=pdf.stat().st_size,
-    )
-    storage.create_document(document)
-    return document
+    """Motore per il job (la factory è condivisa con la TUI)."""
+    return build_engine(settings)
 
 
 def _process_one(
@@ -225,39 +184,32 @@ def _process_one(
 ) -> dict:
     """Traduce un PDF; ritorna un riepilogo."""
     engine = _make_engine(settings)
-    document = _register_document(storage, engine, pdf)
     try:
-        pages = parse_pages(args.pages, document.page_count)
+        document, job = create_document_and_job(
+            storage,
+            engine,
+            pdf,
+            pages_spec=args.pages,
+            src_lang=args.src,
+            dst_lang=args.dst,
+            engine_name=args.engine,
+            output_name=args.output,
+            range_mode=RangeMode(args.range_mode),
+            owner_id="cli",
+            max_pages=settings.max_pages_total,
+        )
     except ValueError as exc:
         raise EngineError(str(exc)) from exc
-    if len(pages) > settings.max_pages_total:
-        raise EngineError(f"troppe pagine (max {settings.max_pages_total})")
-
-    stem = sanitize_stem(args.output or f"{pdf.stem}_{args.dst}", "output")
-    job = JobRecord(
-        job_id=uuid.uuid4().hex,
-        doc_id=document.doc_id,
-        pages=pages,
-        src_lang=args.src,
-        dst_lang=args.dst,
-        engine=args.engine,
-        output_name=stem,
-        range_mode=RangeMode(args.range_mode),
-        state=JobState.queued,
-        pages_total=len(pages),
-        owner_id="cli",
-    )
-    storage.create_job(job)
 
     if args.force:
-        for page in pages:
+        for page in job.pages:
             cached = engine.translated_path_for(
                 document.sha256, page, job.engine, job.src_lang, job.dst_lang
             )
             cached.unlink(missing_ok=True)
 
     bar = tqdm(
-        total=len(pages),
+        total=job.pages_total,
         desc=pdf.name[:30],
         unit="pag",
         position=position,
@@ -289,7 +241,7 @@ def _process_one(
 
     return {
         "pdf": pdf,
-        "pages_total": len(pages),
+        "pages_total": job.pages_total,
         "pages_done": result.pages_done,
         "pages_failed": result.pages_failed,
         "cancelled": result.cancelled,

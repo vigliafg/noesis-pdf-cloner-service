@@ -1,17 +1,17 @@
 # Handoff — noesis-pdf-cloner-service
 
-*Data: 2026-10-27 · versione 0.1.12, allineata al desktop 0.1.12 · Repository pubblico:
+*Data: 2026-10-27 · versione 0.2.0, allineata al desktop 0.2.0 · Repository pubblico:
 `git@github.com:vigliafg/noesis-pdf-cloner-service.git` (SSH, branch `main`).*
 
-Servizio **server + CLI headless** derivato da `noesis-pdf-cloner`: traduce PDF
-preservando il layout (pdf2zh_next v2 / BabelDOC) con frontend web, coda a
+Servizio **server + TUI + CLI headless** derivato da `noesis-pdf-cloner`: traduce
+PDF preservando il layout (pdf2zh_next v2 / BabelDOC) con frontend web, coda a
 priorità e parallelismo a livello pagina.
 
 ---
 
 ## 1. Stato
 
-**Implementato e testato** (334 test, motore fittizio, nessuna rete):
+**Implementato e testato** (363 test, motore fittizio, nessuna rete):
 
 - Pipeline condivisa `engine.py` + `pipeline.py` (server e CLI).
 - **Console `noesis`** (`tools/noesis.py`, sola stdlib, multipiattaforma):
@@ -28,6 +28,12 @@ priorità e parallelismo a livello pagina.
 - Cache **versionata**, scritture atomiche, lock inter-processo, process group
   per il cancel.
 - CLI headless batch con `tqdm`.
+- **TUI interattiva** (`app/tui/`, Textual): `./noesis` (o `./noesis tui`) apre
+  Home dei lavori → wizard in 5 passi → esecuzione con annullamento e
+  diagnostica. Client **in-process** della stessa pipeline (nessun server):
+  condivide cache, `noesis.env` e SQLite; job `owner_id="tui"` con recovery
+  dedicato; `server_is_up` blocca l'avvio se il servizio è attivo (ADR-019).
+  Dipendenza opzionale (`requirements-tui.txt`, non nel Docker).
 - **Libri interi a blocchi da 100** e **stima tempo/costo**
   (`POST /jobs/estimate`).
 - **Modello di costo LLM calibrato**: `costo_USD ≈ 6.8e-7 × chars_sorgente`
@@ -65,7 +71,14 @@ priorità e parallelismo a livello pagina.
    SHA-256 del contenuto; scritture tmp + `os.replace`; `flock` per i processi
    concorrenti (server + CLI condividono `CACHE_ROOT`).
 6. **Cancel**: subprocess in una nuova sessione e `killpg` del gruppo.
-7. **Seam commerciali no-op**: `auth.get_current_actor`, `quota.check_quota`,
+7. **Worker persistente serializzato**: `EngineWorkerClient.run()` tiene un
+   `_run_lock` per tutta la richiesta. Il worker serve un job alla volta su un
+   solo socket: senza serializzazione due thread in `recv` potevano consumare la
+   risposta dell'altro (id diverso → scartata) e restare appesi fino a
+   `page_timeout` (900 s). Bug pre-esistente, rilevato dall'e2e della TUI con
+   `PAGE_CONCURRENCY=2`; corretto in `app/engine_client.py` e riverberato in
+   `noesis-pdf-cloner/engine_client.py` (file identici).
+8. **Seam commerciali no-op**: `auth.get_current_actor`, `quota.check_quota`,
    `ocr`, `emailer`, `audit`, tabelle `plans/subscriptions/entitlements/
    api_keys/teams/stripe_events` già migrate.
 
@@ -73,7 +86,7 @@ priorità e parallelismo a livello pagina.
 
 | Verifica | Esito |
 |---|---|
-| `pytest -q` | **223 passed** |
+| `pytest -q` | **368 passed** (+ e2e TUI reale su 5 pagine) |
 | Installer end-to-end (`noesis install --no-engine` + `doctor`) | ok |
 | CI matrix (Linux · macOS · Windows) | test + installer |
 | Docker: build multi-arch + smoke test | ok (CI, GHCR **pubblico**) |
@@ -82,6 +95,9 @@ priorità e parallelismo a livello pagina.
 | Frontend | pagina `/` 200, meta popolato |
 | CLI | `--version`, `--list-engines`, `--list-pages`, end-to-end con motore fittizio |
 | Multi-processo | job accodato con `ROLE=api`, eseguito da `ROLE=worker` (coda su DB) |
+| TUI e2e reali | 10 casi × 10 pagine (6 PDF del corpus, google, cache fredda): **10/10 ok** in 51 min, output validati (pagine, testo, traduzione, formato, lunghezza, italiano) |
+| Desktop e2e reali (fix condiviso) | stessi 10 casi × 10 pagine: **10/10 ok** in 51 min |
+| Desktop dopo il fix condiviso | 558 test (24 skip), `test_engine_worker` 15/15 |
 
 ## 4. Limiti noti / TODO
 
@@ -105,6 +121,12 @@ priorità e parallelismo a livello pagina.
    Stripe Checkout + webhook + quota su `usage`).
 8. **VPS esterno**: console già predisposta (`--mode system`); deploy con
    nginx/TLS/auth resta una fase successiva.
+9. **TUI**: niente vista affiancata (il terminale non renderizza le pagine) e
+   nessun client dell'API (`--server` resta un seam). Se il terminale viene
+   chiuso durante un job, il motore può sopravvivere per la pagina in corso (il
+   processo è in una sessione separata, ADR-001); la cache rende il riavvio
+   economico. Senza server, il janitor gira solo all'avvio della TUI. Windows
+   nativo è *best effort* (non collaudato come gate).
 
 ## 5. Comando rapido
 
@@ -119,6 +141,7 @@ uv pip install --python .venv/bin/python -q -r requirements.txt pytest httpx
 ./run-api.sh             # solo API (ROLE=api)
 ./run-worker.sh          # un processo worker (WORKER_COUNT=N)
 ./run-cli.sh --help
+./noesis tui             # TUI interattiva (stessa pipeline, senza server)
 ```
 
 Docker:

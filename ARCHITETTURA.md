@@ -116,6 +116,8 @@ evitare errori; log live.
 | `app/main.py` | App FastAPI + lifespan |
 | `app/templates`, `app/static` | Frontend (Jinja2 + JS vanilla) |
 | `app/cli.py` | CLI headless (batch, tqdm) |
+| `app/job_factory.py` | Costruzione condivisa di engine + documento + job (CLI/TUI) |
+| `app/tui/` | TUI Textual: client locale della pipeline (Home, wizard, run, diagnostica) |
 | `deploy/` | systemd + nginx di esempio |
 
 ---
@@ -330,6 +332,28 @@ vedono **numeri 1-based**; la conversione avviene in un solo punto.
 - **Conseguenze**: le modifiche valgono **al riavvio** (`./noesis restart` /
   `docker compose up -d`); una variabile d'ambiente **vuota** vale come "non
   impostata" (i compose passano `OPENROUTER_API_KEY=""`).
+
+### ADR-019 — TUI come client locale della pipeline (non un fork)
+- **Decisione**: la TUI vive **nello stesso repo** (`app/tui/`) ed è un **client
+  in-process** di `pipeline.run_job`, come la CLI. Nessun server, nessuna porta,
+  nessuna seconda pipeline né seconda cache: `Settings` da `DATA_DIR` +
+  `noesis.env`, `Storage` SQLite, `CloneEngine` condivisi.
+- **Perché**: l'utente occasionale ottiene un comando (`./noesis`), il progetto
+  resta con **una sola** implementazione di cache/flag motore (la regola di
+  `AGENTS.md`) e la parità col desktop non si tocca. `run_job` è già progettato
+  per questo: `cancel_event` e `on_page_done` sono parametri, non globali.
+- **Alternative**: fork TUI separato (duplica pipeline e cache, drift
+  garantito); TUI client dell'API (utile ma richiede auth, polling, SSE: seam
+  futuro, oggi la guardia `server_is_up` rimanda alla web UI).
+- **Conseguenze**: un solo esecutore per cartella dati (se il server risponde,
+  la TUI non avvia job); i job TUI hanno `owner_id="tui"` e un recovery dedicato
+  (`running` → `interrupted` con `finished`) all'avvio; senza server il janitor
+  gira una volta per sessione. La chiusura del terminale può lasciare un
+  `pdf2zh_next` orfano per una pagina (il motore è in una sessione separata,
+  ADR-001): accettato e documentato, la cache rende il riavvio economico.
+- **Dipendenze**: Textual (`requirements-tui.txt`) è **opzionale** e non entra
+  nell'immagine Docker; l'installer la mette di default (`--no-tui` per
+  disattivarla) e i bundle offline includono i wheel.
 
 ---
 

@@ -1,8 +1,8 @@
 {
   "desktop_repo": "/home/vigliafg/Documenti/GitHub/noesis-pdf-cloner",
-  "desktop_version": "0.1.12",
-  "desktop_commit": "c512f69",
-  "synced_at": "2026-10-27T00:00:00+00:00",
+  "desktop_version": "0.2.0",
+  "desktop_commit": "80acf77",
+  "synced_at": "2026-10-27T20:00:00+00:00",
   "shared": [
     "clone_engine.py → app/engine.py (adattato: stato per documento, cache versionata, worker)",
     "gtranslate_cli.py → app/gtranslate_cli.py",
@@ -20,6 +20,7 @@
   ],
   "notes": [
     "La parità è verificata da tests/test_desktop_parity.py quando il checkout desktop è presente.",
-    "app/engine.py non è byte-identico: aggiunge stato per documento, cache versionata, lock inter-processo, cancel e anteprime."
+    "app/engine.py non è byte-identico: aggiunge stato per documento, cache versionata, lock inter-processo, cancel e anteprime.",
+    "2026-10-27: engine_client.py allineato nei due repo (run() serializzata con _run_lock; regressione coperta da test in entrambi)."
   ]
 }
