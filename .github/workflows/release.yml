@@ -1,0 +1,130 @@
+name: build-releases
+
+# Release multipiattaforma, sullo stesso schema dei repository desktop:
+#   Windows → .exe (zip)        macOS x64/arm64 → binario (tar.gz)
+#   Linux   → binario (tar.gz)  + wheel/sdist
+# L'immagine Docker multi-arch (amd64+arm64) è pubblicata da docker.yml sugli
+# stessi tag. Il motore pdf2zh_next resta esterno: vedi README/install.sh.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x64
+          - os: ubuntu-latest
+            name: linux-x86_64
+          - os: macos-15-intel
+            name: macos-x64
+          - os: macos-15
+            name: macos-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build standalone CLI
+        shell: bash
+        run: |
+          pyinstaller \
+            --onefile \
+            --clean \
+            --noconfirm \
+            --name noesis-cloner \
+            --paths . \
+            --collect-all pymupdf \
+            tools/noesis_cloner_entry.py
+
+      - name: Package artifact
+        shell: bash
+        env:
+          BASE: noesis-pdf-cloner-service-${{ matrix.name }}
+        run: |
+          mkdir -p dist-pkg
+          cp README.md LICENSE NOTICE THIRD_PARTY.md dist-pkg/ 2>/dev/null || true
+          case "$RUNNER_OS" in
+            Windows)
+              cp "dist/noesis-cloner.exe" dist-pkg/
+              (cd dist-pkg && 7z a "../$BASE.zip" .)
+              ;;
+            *)
+              cp "dist/noesis-cloner" dist-pkg/
+              chmod +x dist-pkg/noesis-cloner
+              tar -czf "$BASE.tar.gz" -C dist-pkg .
+              ;;
+          esac
+          ls -la *.zip *.tar.gz 2>/dev/null || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: noesis-pdf-cloner-service-${{ matrix.name }}
+          path: |
+            noesis-pdf-cloner-service-${{ matrix.name }}.zip
+            noesis-pdf-cloner-service-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+
+  python-package:
+    name: python-wheel-sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: noesis-pdf-cloner-service-python
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [binaries, python-package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

@@ -17,6 +17,39 @@ from .envfile import config_path, parse_env_file
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
+#: Preset "prestazioni" allineati al desktop ``noesis-pdf-cloner`` 0.1.12.
+#:
+#: Nel desktop il preset compila anche i campi LLM (modello, reasoning, pool,
+#: prompt). Qui vengono usati solo come **default**: una variabile d'ambiente
+#: esplicita (o ``noesis.env``) ha sempre la precedenza.
+#:
+#: ``base`` del preset ``fastest`` vale ``__proxy__`` nel desktop, dove il proxy
+#: parte in automatico. Il servizio non avvia processi locali impliciti: se
+#: vuoi il proxy usa ``tools/provider_proxy.py`` e imposta ``PDF_LLM_BASE_URL``.
+_FASTEST_PROMPT = (
+    "Sei un traduttore medico EN->IT. Traduci fedelmente mantenendo la "
+    "formattazione e l'ordine. Traduci i nomi dei farmaci nella forma "
+    "italiana quando esiste (es. daptomycin->daptomicina, polymyxins->"
+    "polimixine). NON tradurre le citazioni bibliografiche, i nomi di "
+    "riviste e le sigle tecniche (ABG, AG, MIC)."
+)
+
+PRESETS: dict[str, dict] = {
+    "normal": {
+        "fast": False, "worker": False, "model": "inception/mercury-2.5",
+        "reasoning": "", "json": False, "pool": 4, "prompt": "",
+    },
+    "fast": {
+        "fast": True, "worker": True, "model": "inception/mercury-2.5",
+        "reasoning": "", "json": False, "pool": 4, "prompt": "",
+    },
+    "fastest": {
+        "fast": True, "worker": True, "model": "openai/gpt-oss-120b",
+        "reasoning": "minimal", "json": False, "pool": 8,
+        "prompt": _FASTEST_PROMPT,
+    },
+}
+
 
 def _load_env_file(data_dir: Path) -> None:
     """Carica ``<data_dir>/noesis.env`` nell'ambiente, **senza** sovrascrivere.
@@ -107,6 +140,11 @@ class Settings:
     openrouter_api_key: str = ""
     llm_model: str = "inception/mercury-2.5"
     llm_base_url: str = "https://openrouter.ai/api/v1"
+    # Timeout per singola chiamata LLM (secondi), allineato al desktop.
+    llm_timeout: int = 90
+    # Rate limit pdf2zh_next per i motori gratuiti (allineato al desktop).
+    qps_google: int = 2
+    qps_bing: int = 5
     engine_cache_version: str = "1"
     # Richieste LLM in parallelo dentro una pagina (usato solo dalla feature
     # sperimentale fast_engine, quando il pool viene passato esplicitamente).
@@ -225,11 +263,12 @@ class Settings:
         shell_before = frozenset(os.environ)
         _load_env_file(data_dir)
         cache_root = _env_str("CACHE_ROOT") or None
-        # Preset prestazioni (allineato al desktop): governa i default dei flag.
+        # Preset prestazioni (allineato al desktop): governa i default dei flag
+        # e dei campi LLM. Un valore esplicito nell'ambiente vince sempre.
         preset = _env_str("PERFORMANCE_PRESET", "fast").strip().lower() or "fast"
-        if preset not in ("normal", "fast", "fastest"):
+        if preset not in PRESETS:
             preset = "fast"
-        fast_default = preset in ("fast", "fastest")
+        preset_cfg = PRESETS[preset]
         settings = cls(
             host=_env_str("HOST", "127.0.0.1"),
             port=_env_int("PORT", 18080),
@@ -258,18 +297,23 @@ class Settings:
             janitor_interval_seconds=_env_int("JANITOR_INTERVAL_SECONDS", 600),
             pdf2zh_bin=_env_str("PDF2ZH_BIN"),
             openrouter_api_key=_env_str("OPENROUTER_API_KEY"),
-            llm_model=_env_str("PDF_LLM_MODEL", "inception/mercury-2.5"),
+            llm_model=_env_str("PDF_LLM_MODEL", preset_cfg["model"]),
             llm_base_url=_env_str("PDF_LLM_BASE_URL", "https://openrouter.ai/api/v1"),
+            llm_timeout=_env_int("PDF_LLM_TIMEOUT", 90),
+            qps_google=_env_int("QPS_GOOGLE", 2),
+            qps_bing=_env_int("QPS_BING", 5),
             engine_cache_version=_env_str("ENGINE_CACHE_VERSION", "1"),
-            llm_pool_workers=_env_int("PDF_LLM_POOL_WORKERS", 4),
-            fast_engine=_env_bool("FAST_ENGINE", fast_default),
+            llm_pool_workers=_env_int("PDF_LLM_POOL_WORKERS", preset_cfg["pool"]),
+            fast_engine=_env_bool("FAST_ENGINE", preset_cfg["fast"]),
             fast_flags=_env_bool("FAST_FLAGS", False),
-            fast_worker=_env_bool("FAST_WORKER", fast_default),
+            fast_worker=_env_bool("FAST_WORKER", preset_cfg["worker"]),
             performance_preset=preset,
-            llm_reasoning_effort=_env_str("PDF_LLM_REASONING_EFFORT", ""),
-            llm_json_mode=_env_bool("PDF_LLM_JSON_MODE", False),
+            llm_reasoning_effort=_env_str(
+                "PDF_LLM_REASONING_EFFORT", preset_cfg["reasoning"]),
+            llm_json_mode=_env_bool("PDF_LLM_JSON_MODE", preset_cfg["json"]),
             numeric_lists=_env_bool("NUMERIC_LISTS", False),
-            llm_system_prompt=_env_str("PDF_LLM_SYSTEM_PROMPT", ""),
+            llm_system_prompt=_env_str(
+                "PDF_LLM_SYSTEM_PROMPT", preset_cfg["prompt"]),
             preflight_guard=_env_bool("PREFLIGHT_GUARD", True),
             estimate_ms_per_page={
                 "google": _env_int("ESTIMATE_MS_PER_PAGE_GOOGLE", 0),

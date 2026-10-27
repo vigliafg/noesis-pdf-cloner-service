@@ -2,6 +2,7 @@
 
 [![tests](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/tests.yml/badge.svg)](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/tests.yml)
 [![docker](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/docker.yml/badge.svg)](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/docker.yml)
+[![release](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/release.yml/badge.svg)](https://github.com/vigliafg/noesis-pdf-cloner-service/actions/workflows/release.yml)
 [![ghcr.io](https://img.shields.io/badge/ghcr.io-noesis--pdf--cloner--service-2496ED?logo=docker&logoColor=white)](https://github.com/vigliafg/noesis-pdf-cloner-service/pkgs/container/noesis-pdf-cloner-service)
 [![license: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
@@ -672,11 +673,38 @@ Installando il pacchetto (`pip install -e .`) è disponibile anche il comando
 
 ## Stato del progetto
 
-**Funzionante** (v0.1.0). Verificato end-to-end su un PDF reale (`ha22.pdf`,
-4.132 pagine): upload, anteprima, stima, coda, traduzione, download — sia da
-**server** sia da **CLI**. Motore `pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`.
-Test: **223 passed** (`pytest`, motore fittizio, nessuna rete). Disponibile anche
-come **immagine Docker multi-arch**.
+**Funzionante** (v0.1.12, allineata al desktop 0.1.12). Verificato end-to-end su
+un PDF reale (`ha22.pdf`, 4.132 pagine): upload, anteprima, stima, coda,
+traduzione, download — sia da **server** sia da **CLI**. Motore
+`pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`. Test: **334 passed**
+(`pytest`, motore fittizio, nessuna rete). Disponibile anche come **immagine
+Docker multi-arch**.
+
+## Release
+
+Le release sono **multipiattaforma**, sullo stesso schema dei desktop:
+
+| Canale | Piattaforme | Artefatto |
+|---|---|---|
+| GitHub Release | Windows x64 | `noesis-pdf-cloner-service-windows-x64.zip` (CLI `.exe`) |
+| GitHub Release | Linux x86_64 | `noesis-pdf-cloner-service-linux-x86_64.tar.gz` |
+| GitHub Release | macOS x64 / arm64 | `…-macos-x64.tar.gz`, `…-macos-arm64.tar.gz` |
+| GitHub Release | Python | wheel + sdist |
+| GHCR | linux/amd64 + linux/arm64 | `ghcr.io/vigliafg/noesis-pdf-cloner-service` |
+
+Il workflow `.github/workflows/release.yml` parte con un tag `v*`; `docker.yml`
+pubblica sulla stessa tag le immagini **multi-arch** (`v0.1.12`, `0.1.12`,
+`0.1`, `latest`, `sha-<commit>`). Ogni release include `SHA256SUMS.txt`.
+
+> I binari standalone contengono **la CLI** (`noesis-cloner`): il server si
+> esegue da checkout/`pip install` o dall'immagine Docker. Il motore
+> `pdf2zh_next` resta esterno e va installato con `./setup_engine.sh` (o usato
+> via Docker, dove è già incluso). È la stessa separazione del desktop.
+
+```bash
+git tag v0.1.12
+git push origin v0.1.12
+```
 
 ## Architettura
 
@@ -889,6 +917,15 @@ vuota vale come "non impostata". Le più utili:
 | `PDF2ZH_BIN` | auto | percorso dell'eseguibile `pdf2zh_next` |
 | `OPENROUTER_API_KEY` | — | necessaria per il motore `llm` |
 | `PDF_LLM_MODEL` / `PDF_LLM_BASE_URL` | `inception/mercury-2.5` / OpenRouter | modello LLM |
+| `PDF_LLM_TIMEOUT` | `90` | timeout per singola chiamata LLM (secondi), come il desktop |
+| `PDF_LLM_POOL_WORKERS` | preset (`4`, `8` con `fastest`) | richieste LLM in parallelo nella stessa pagina |
+| `PDF_LLM_REASONING_EFFORT` | preset (`minimal` con `fastest`) | effort per i modelli ragionativi |
+| `PDF_LLM_JSON_MODE` | `false` | JSON mode del provider (solo con motore fast) |
+| `PDF_LLM_SYSTEM_PROMPT` | preset | prompt di sistema personalizzato |
+| `PERFORMANCE_PRESET` | `fast` | `normal` \| `fast` \| `fastest`: default di patch, worker e campi LLM |
+| `QPS_GOOGLE` / `QPS_BING` | `2` / `5` | richieste al secondo dei motori gratuiti |
+| `FAST_ENGINE` / `FAST_FLAGS` / `FAST_WORKER` | preset | override espliciti dei singoli flag (vincono sul preset) |
+| `NUMERIC_LISTS` | `false` | patch opt-in per liste numerate/alfabetiche |
 | `PREFLIGHT_GUARD` | `true` | rifiuta (409) un job `llm` senza chiave invece di accodarlo |
 | `AUTH_MODE` | `none` | seam auth: `none` \| `proxy` \| `jwt` |
 | `TRUSTED_PROXY_HEADERS` | `false` | fidati degli header del reverse proxy |
@@ -899,6 +936,22 @@ vuota vale come "non impostata". Le più utili:
 | `TERMS_VERSION` | `1.0` | versione dei Termini (gate + `/meta`) |
 | `REQUIRE_TERMS_ACCEPTANCE` | `false` | richiede l'accettazione dei Termini per creare un job (attivare quando esponi) |
 | `ADMIN_ALLOW_FROM` | vuoto | IP/CIDR extra ammessi alla pagina `/settings` (di norma basta il riconoscimento automatico locale/Docker) |
+
+### Preset prestazioni (`PERFORMANCE_PRESET`)
+
+Allineati al desktop `noesis-pdf-cloner` 0.1.12:
+
+| Preset | Patch/worker | Modello LLM | Pool | Reasoning | Prompt |
+|---|---|---|---|---|---|
+| `normal` | off | `inception/mercury-2.5` | 4 | — | — |
+| `fast` (default) | on | `inception/mercury-2.5` | 4 | — | — |
+| `fastest` | on | `openai/gpt-oss-120b` | 8 | `minimal` | medico EN→IT |
+
+Il preset fornisce i **default**: una variabile d'ambiente esplicita (o
+`noesis.env`) ha sempre la precedenza. `fast`/`fastest` attivano `FAST_ENGINE` e
+`FAST_WORKER`; `FAST_FLAGS` resta un opt-in manuale perché cambia la precisione
+del layout. Il proxy locale del desktop non viene avviato dal servizio: per
+`fastest` puoi avviare `tools/provider_proxy.py` e impostare `PDF_LLM_BASE_URL`.
 
 ## Test
 

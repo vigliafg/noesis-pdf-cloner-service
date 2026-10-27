@@ -49,6 +49,12 @@ CACHE_SCHEMA_VERSION = "1"
 FAST_ENGINE_TAG = "fast1"
 DEFAULT_MODEL = "inception/mercury-2.5"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+# Timeout per singola chiamata LLM (secondi): identico al desktop. Senza
+# ``--openai-timeout`` pdf2zh_next usa il proprio default, che può essere molto
+# più alto e lasciare appesa una pagina su un provider lento.
+DEFAULT_LLM_TIMEOUT = 90
+DEFAULT_QPS_GOOGLE = 2
+DEFAULT_QPS_BING = 5
 DEFAULT_PAGE_TIMEOUT = 900  # secondi per pagina densa (pdf2zh + BabelDOC)
 
 
@@ -301,6 +307,9 @@ class CloneEngine:
         cache_version: str = "1",
         llm_model: str = DEFAULT_MODEL,
         llm_base_url: str = DEFAULT_BASE_URL,
+        llm_timeout: int = DEFAULT_LLM_TIMEOUT,
+        qps_google: int = DEFAULT_QPS_GOOGLE,
+        qps_bing: int = DEFAULT_QPS_BING,
         api_key: str | None = None,
         llm_pool_workers: int = 4,
         fast_engine: bool = False,
@@ -325,6 +334,10 @@ class CloneEngine:
         self.cache_version = cache_version
         self.llm_model = llm_model
         self.llm_base_url = llm_base_url
+        self.llm_timeout = max(1, int(llm_timeout))
+        # Rate limit per richiesta: configurabili come nel desktop.
+        self.qps_google = max(1, int(qps_google))
+        self.qps_bing = max(1, int(qps_bing))
         self.api_key = api_key or ""
         self.llm_pool_workers = max(1, int(llm_pool_workers))
         # Feature sperimentale "motore veloce" (default OFF, reversibile).
@@ -691,13 +704,17 @@ class CloneEngine:
                 "--openai",
                 "--openai-model", self.llm_model,
                 "--openai-base-url", self.llm_base_url,
+                "--openai-timeout", str(int(self.llm_timeout)),
+                # Un giro LLM in meno per pagina: il glossario automatico
+                # estrae i termini con una chiamata extra (allineato al desktop).
+                "--no-auto-extract-glossary",
             ]
             if self.llm_system_prompt:
                 flags += ["--custom-system-prompt", self.llm_system_prompt]
+            workers = max(1, int(getattr(self, "llm_pool_workers", 1) or 1))
             if self._fast_engine_active():
                 # Pool esplicito (anche =1) + qps allineato: altrimenti pdf2zh
                 # usa ``qps`` (default 4) come numero di worker.
-                workers = max(1, int(getattr(self, "llm_pool_workers", 1) or 1))
                 flags += [
                     "--pool-max-workers", str(workers),
                     "--qps", str(workers),
@@ -710,6 +727,10 @@ class CloneEngine:
                     ]
                 if self.llm_json_mode:
                     flags += ["--openai-enable-json-mode"]
+            elif workers > 1:
+                # Più segmenti tradotti insieme nella stessa pagina anche senza
+                # la feature "motore veloce" (comportamento del desktop).
+                flags += ["--pool-max-workers", str(workers)]
             return (flags, f"llm ({self.llm_model})")
         if engine == "google":
             pdf2zh = self.pdf2zh_bin() or Path(sys.executable)
@@ -720,11 +741,11 @@ class CloneEngine:
                     "--clitranslator",
                     "--clitranslator-command", shlex.join([str(py), str(cli)]),
                     "--clitranslator-timeout", "120",
-                    "--qps", "2",
+                    "--qps", str(self.qps_google),
                 ],
                 "google (gratuito, catena)",
             )
-        return (["--bing", "--qps", "5"], "bing")
+        return (["--bing", "--qps", str(self.qps_bing)], "bing")
 
     def _run_engine(
         self,

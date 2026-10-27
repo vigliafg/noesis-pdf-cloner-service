@@ -17,6 +17,13 @@ jobs:
       - name: Installa il motore pdf2zh_next
         run: |
           uv venv --python 3.12 .venv2
-          uv pip install --python .venv2/bin/python -q -r requirements-engine.txt
+          # Lockfile = stesse versioni validate in locale. Fallback al manifest
+          # solo se il lock non è applicabile (es. nuovo runner senza cache).
+          uv pip install --python .venv2/bin/python -q -r requirements-engine.lock \
+            || uv pip install --python .venv2/bin/python -q -r requirements-engine.txt
+      - name: Diagnostica installazione
+        run: |
+          .venv2/bin/python -c "import sys, pdf2zh_next; print(sys.version); print(pdf2zh_next.__file__)"
+          .venv2/bin/python -m pip list 2>/dev/null | grep -iE "pdf2zh|babeldoc" || true
       - name: Verifica motore
         run: .venv2/bin/pdf2zh_next --version

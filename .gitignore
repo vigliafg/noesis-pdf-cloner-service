@@ -21,3 +21,6 @@ out/
 build/
 dist/
 *.egg-info/
+
+# PyInstaller
+*.spec

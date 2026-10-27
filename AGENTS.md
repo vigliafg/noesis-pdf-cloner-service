@@ -76,6 +76,16 @@ esistono solo qui e non hanno controparte nel desktop.
 In caso di dubbio su cosa sia "funzionalità" e cosa sia "solo server",
 chiedere conferma prima di propagare.
 
+### Parità verificata
+
+- `ENGINE_SOURCE.json` registra il commit desktop sincronizzato.
+- `tests/test_desktop_parity.py` controlla (se `../noesis-pdf-cloner` è
+  presente) gli id motore, i flag `pdf2zh_next` condivisi, i default
+  (modello/timeout/qps/marker cache) e i preset `normal|fast|fastest`.
+- La CI del solo repo service salta i test di parità come gli altri engine.
+- Dopo una modifica funzionale: aggiorna il manifest e lancia
+  `.venv/bin/python -m pytest tests/test_desktop_parity.py`.
+
 ## Convenzione nomi degli output di test
 - Cartella **`out/`**, formato `<stem>_p<start>-<end>_<motore>.pdf`, dove
   `<motore>` è **`google`** o **`llm`** (motore LLM/`openai`).

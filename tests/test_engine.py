@@ -215,14 +215,38 @@ def test_fast_engine_missing_wrapper_falls_back(tmp_path, monkeypatch):
     assert engine._engine_launch_prefix(fake) == [str(fake)]
 
 
-def test_fast_engine_pool_explicit_only_when_fast(tmp_path):
+def test_llm_flags_match_desktop_contract(tmp_path):
+    """Flag condivisi col desktop: timeout, glossario, pool."""
     engine = _fast_engine(tmp_path, llm_pool_workers=6)
     flags, _ = engine._translator_flags("llm")
-    assert "--pool-max-workers" not in flags  # comportamento storico
+    # Sempre presenti (desktop d8ea957).
+    assert flags[flags.index("--openai-timeout") + 1] == "90"
+    assert "--no-auto-extract-glossary" in flags
+    # Con fast OFF il pool è esplicito solo se >1 (desktop 0.1.12).
+    assert flags[flags.index("--pool-max-workers") + 1] == "6"
+
+    engine.llm_pool_workers = 1
+    flags, _ = engine._translator_flags("llm")
+    assert "--pool-max-workers" not in flags
+
     engine.fast_engine = True
+    engine.llm_pool_workers = 6
     flags, _ = engine._translator_flags("llm")
     assert flags[flags.index("--pool-max-workers") + 1] == "6"
     assert flags[flags.index("--qps") + 1] == "6"
+
+
+def test_qps_are_configurable(tmp_path):
+    engine = _fast_engine(tmp_path, qps_google=7, qps_bing=9)
+    google, _ = engine._translator_flags("google")
+    bing, _ = engine._translator_flags("bing")
+    assert google[google.index("--qps") + 1] == "7"
+    assert bing[bing.index("--qps") + 1] == "9"
+    # Default allineati al desktop.
+    default = _fast_engine(tmp_path)
+    assert default.qps_google == 2
+    assert default.qps_bing == 5
+    assert default.llm_timeout == 90
 
 
 def test_fast_engine_quality_flags_gated(tmp_path, monkeypatch):

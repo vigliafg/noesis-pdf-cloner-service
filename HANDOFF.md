@@ -1,6 +1,6 @@
 # Handoff — noesis-pdf-cloner-service
 
-*Data: 2026-09-28 · allineato al desktop 0.1.12 · Repository pubblico:
+*Data: 2026-10-27 · versione 0.1.12, allineata al desktop 0.1.12 · Repository pubblico:
 `git@github.com:vigliafg/noesis-pdf-cloner-service.git` (SSH, branch `main`).*
 
 Servizio **server + CLI headless** derivato da `noesis-pdf-cloner`: traduce PDF
@@ -11,7 +11,7 @@ priorità e parallelismo a livello pagina.
 
 ## 1. Stato
 
-**Implementato e testato** (223 test, motore fittizio, nessuna rete):
+**Implementato e testato** (334 test, motore fittizio, nessuna rete):
 
 - Pipeline condivisa `engine.py` + `pipeline.py` (server e CLI).
 - **Console `noesis`** (`tools/noesis.py`, sola stdlib, multipiattaforma):
@@ -225,7 +225,9 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
 
 19. Creare email di ruolo `legal@` / `privacy@` / `security@`.
 20. **Ruotare** eventuali chiavi storicamente esposte.
-21. **Tag/release** per la corrispondenza versione ↔ sorgente (AGPL §13).
+21. ~~**Tag/release** per la corrispondenza versione ↔ sorgente (AGPL §13).~~
+    **Fatto**: `v0.1.12` con release multipiattaforma (Windows/Linux/macOS,
+    wheel/sdist) + immagine Docker multi-arch. Vedi `README.md` → Release.
 22. Rigenerare `docs/help/note-legali.html` quando cambiano i documenti legali
     (in CI è automatico; in locale:
     `.venv/bin/python tools/build_help_legal.py`).
@@ -253,10 +255,13 @@ docker run -d --name noesis -p 18080:18080 -v noesis-data:/data \
 Riverbero della feature del desktop `noesis-pdf-cloner`, ora **mergiato su `main`**
 (branch storico `experiment/fast-engine`). **Default ON** come il desktop:
 `fast_engine`/`fast_worker` attivi. `PERFORMANCE_PRESET` (`normal|fast|fastest`)
-governa i **default** dei flag (un `FAST_ENGINE` esplicito vince). In `/settings` il
+governa i **default** di patch/worker e **campi LLM** (modello, pool, reasoning,
+prompt) come il desktop; un valore esplicito nell'ambiente vince. In `/settings` il
 modello LLM (`PDF_LLM_MODEL`) è una **tendina** con i 4 modelli approvati
 (Mercury · gpt-oss-120b · qwen3-30b-a3b · gpt-6-luna), con `allow_custom_value` per
 modelli fuori elenco. Kill switch: `NOESIS_FAST_ENGINE=0`, `NOESIS_FAST_FLAGS=0`.
+Allineati anche `PDF_LLM_TIMEOUT` (90 s), `QPS_GOOGLE`/`QPS_BING` e i flag
+`--no-auto-extract-glossary` / `--pool-max-workers`.
 
 - **Moduli**: `app/engine_patch.py` (memoizza l'hash dei font, disattiva
   `MemoryMonitor`), `app/engine_wrapper.py` (launcher), `app/engine_worker.py`

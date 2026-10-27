@@ -1,0 +1,25 @@
+{
+  "desktop_repo": "/home/vigliafg/Documenti/GitHub/noesis-pdf-cloner",
+  "desktop_version": "0.1.12",
+  "desktop_commit": "c512f69",
+  "synced_at": "2026-10-27T00:00:00+00:00",
+  "shared": [
+    "clone_engine.py → app/engine.py (adattato: stato per documento, cache versionata, worker)",
+    "gtranslate_cli.py → app/gtranslate_cli.py",
+    "engine_patch.py → app/engine_patch.py",
+    "engine_wrapper.py → app/engine_wrapper.py",
+    "engine_client.py → app/engine_client.py",
+    "pagelabels.py → app/pagelabels.py"
+  ],
+  "contract": [
+    "ENGINES e ENGINE_ALIASES",
+    "DEFAULT_MODEL / DEFAULT_LLM_TIMEOUT / DEFAULT_QPS_GOOGLE / DEFAULT_QPS_BING",
+    "FAST_ENGINE_TAG / PATCH_VERSION",
+    "flag pdf2zh_next condivisi (--openai-timeout, --no-auto-extract-glossary, --pool-max-workers)",
+    "preset normal/fast/fastest"
+  ],
+  "notes": [
+    "La parità è verificata da tests/test_desktop_parity.py quando il checkout desktop è presente.",
+    "app/engine.py non è byte-identico: aggiunge stato per documento, cache versionata, lock inter-processo, cancel e anteprime."
+  ]
+}

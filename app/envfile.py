@@ -355,6 +355,24 @@ SETTINGS_SCHEMA: tuple[SettingSpec, ...] = (
         field="llm_base_url",
     ),
     SettingSpec(
+        "PDF_LLM_TIMEOUT", "int", "90", "engine",
+        desc_it="Timeout per singola chiamata LLM (secondi).",
+        desc_en="Timeout for each LLM call (seconds).",
+        field="llm_timeout", minimum=1,
+    ),
+    SettingSpec(
+        "QPS_GOOGLE", "int", "2", "engine",
+        desc_it="Richieste al secondo per il motore google (catena gratuita).",
+        desc_en="Requests per second for the google engine (free chain).",
+        field="qps_google", minimum=1,
+    ),
+    SettingSpec(
+        "QPS_BING", "int", "5", "engine",
+        desc_it="Richieste al secondo per il motore bing.",
+        desc_en="Requests per second for the bing engine.",
+        field="qps_bing", minimum=1,
+    ),
+    SettingSpec(
         "PERFORMANCE_PRESET", "choice", "fast", "engine",
         desc_it="Preset prestazioni: normal (tutto off), fast (patch+worker, "
                 "consigliato), fastest (modello LLM veloce).",
