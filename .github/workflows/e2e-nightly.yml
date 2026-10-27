@@ -25,7 +25,6 @@ concurrency:
 env:
   IMAGE: ghcr.io/vigliafg/noesis-pdf-cloner-service:latest
   PORT: "18080"
-  DATA_DIR: ${{ runner.temp }}/noesis-e2e
   ISSUE_TITLE: "e2e-notturno: traduzione di prova fallita"
 
 jobs:
@@ -35,7 +34,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Prepara la cartella dati
-        run: mkdir -p "$DATA_DIR"
+        run: |
+          echo "DATA_DIR=${RUNNER_TEMP}/noesis-e2e" >> "$GITHUB_ENV"
+          mkdir -p "${RUNNER_TEMP}/noesis-e2e"
 
       - name: Scarica l'immagine
         run: docker pull "$IMAGE"
