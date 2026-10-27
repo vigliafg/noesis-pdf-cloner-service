@@ -23,7 +23,19 @@ jobs:
           uv pip install --python .venv2/bin/python -q -r requirements-engine.lock
       - name: Diagnostica installazione
         run: |
-          .venv2/bin/python -c "import sys, pdf2zh_next; print(sys.version); print(pdf2zh_next.__file__)"
-          .venv2/bin/python -m pip list 2>/dev/null | grep -iE "pdf2zh|babeldoc" || true
+          .venv2/bin/python - <<'PY'
+          import sys
+          from importlib.metadata import version
+
+          import pdf2zh_next
+
+          print(sys.version)
+          print(pdf2zh_next.__file__)
+          for pkg in ("pdf2zh-next", "babeldoc", "bitstring"):
+              try:
+                  print(f"{pkg}=={version(pkg)}")
+              except Exception as exc:  # noqa: BLE001 - solo diagnostica
+                  print(f"{pkg}: non installato ({exc})")
+          PY
       - name: Verifica motore
         run: .venv2/bin/pdf2zh_next --version
