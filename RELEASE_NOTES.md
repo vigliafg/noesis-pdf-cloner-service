@@ -36,7 +36,8 @@ sha256sum -c SHA256SUMS.txt
 tar -xzf noesis-pdf-cloner-service-linux-x86_64.tar.gz
 ./noesis-cloner --version      # 0.1.12
 ./noesis-cloner --help
-docker run --rm ghcr.io/vigliafg/noesis-pdf-cloner-service:0.1.12 --version
+docker run --rm --entrypoint noesis-cloner \
+  ghcr.io/vigliafg/noesis-pdf-cloner-service:0.1.12 --version
 ```
 
 > I bundle standalone contengono la **CLI**. Il server si esegue da checkout,
