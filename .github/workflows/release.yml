@@ -113,6 +113,8 @@ jobs:
     needs: [binaries, python-package]
     runs-on: ubuntu-latest
     steps:
+      # Serve per RELEASE_NOTES.md (body_path).
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -127,6 +129,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
           # Idempotente: un re-tag può riusare la release esistente.
           overwrite_files: true
