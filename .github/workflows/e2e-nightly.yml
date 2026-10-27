@@ -47,11 +47,13 @@ jobs:
             -p "127.0.0.1:${PORT}:18080" \
             -v "$DATA_DIR:/data" \
             "$IMAGE"
+          sleep 3
+          docker ps -a
 
       - name: Attendi /api/v1/health
         run: |
           set -euo pipefail
-          for _ in $(seq 1 90); do
+          for _ in $(seq 1 150); do
             if curl -fsS "http://127.0.0.1:${PORT}/api/v1/health" > health.json; then
               python3 - <<'PY'
           import json
@@ -64,6 +66,8 @@ jobs:
             sleep 2
           done
           echo "::error::il servizio non risponde su /api/v1/health"
+          docker ps -a || true
+          docker inspect noesis-e2e || true
           docker logs noesis-e2e || true
           exit 1
 
@@ -148,7 +152,16 @@ jobs:
 
       - name: Raccogli i log del container
         if: always()
-        run: docker logs noesis-e2e > docker.log 2>&1 || true
+        run: |
+          {
+            echo "--- docker ps -a ---"
+            docker ps -a || true
+            echo "--- docker inspect ---"
+            docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}' noesis-e2e || true
+            echo "--- docker logs ---"
+            docker logs noesis-e2e || true
+          } > docker.log 2>&1
+          cat docker.log
 
       - name: Pubblica gli artefatti
         if: always()
