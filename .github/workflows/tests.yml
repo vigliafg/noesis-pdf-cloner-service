@@ -83,9 +83,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Niente setup-uv: `noesis install` provisiona uv da solo. Evita il
-      # post-step flaky dell'action (cleanup cache Windows) che falliva il job
-      # pur con tutti i passi verdi.
+      # Installazione esplicita di uv: evita il post-step flaky di setup-uv
+      # (cleanup cache Windows) che falliva il job pur con i passi verdi.
+      - name: Installa uv
+        shell: pwsh
+        run: |
+          irm https://astral.sh/uv/install.ps1 | iex
+          "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:USERPROFILE\.local\bin\uv.exe" --version
       - name: Install (servizio + report)
         shell: pwsh
         run: .\noesis.cmd install --no-engine --skip-warm --no-browser --data-dir "$env:RUNNER_TEMP\noesis-svc"
