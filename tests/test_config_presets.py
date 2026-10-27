@@ -1,4 +1,4 @@
-"""Preset prestazioni allineati al desktop ``noesis-pdf-cloner`` 0.2.0.
+"""Preset prestazioni allineati al desktop ``noesis-pdf-cloner`` 0.2.1.
 
 Il preset governa i *default* dei flag e dei campi LLM; una variabile
 d'ambiente esplicita deve sempre vincere.

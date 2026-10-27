@@ -2121,6 +2121,16 @@ def cmd_tui(args: argparse.Namespace, ui: UI) -> int:
     ensure_service_venv(uv, ui)
     env = build_env(data_dir)
     cmd = [str(venv_python_in(service_venv())), "-m", "app.tui"]
+    theme = getattr(args, "theme", None)
+    if theme and theme != "auto":
+        cmd += ["--theme", theme]
+    lang = getattr(args, "lang", None)
+    if lang:
+        cmd += ["--lang", lang]
+    if getattr(args, "line", False):
+        cmd.append("--line")
+    if getattr(args, "ascii", False):
+        cmd.append("--ascii")
     if DRY_RUN:
         ui.info(f"[dry-run] {' '.join(cmd)}")
         return 0
@@ -2235,6 +2245,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     tuip = sub.add_parser("tui", help="interfaccia interattiva nel terminale")
     _common(tuip)
+    tuip.add_argument("--theme", choices=("auto", "dark", "light"), default="auto")
+    tuip.add_argument("--lang", choices=("it", "en"), default=None)
+    tuip.add_argument("--line", action="store_true", help="wizard a righe (senza Textual)")
+    tuip.add_argument("--ascii", action="store_true", help="caratteri ASCII")
 
     return parser
 

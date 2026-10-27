@@ -334,12 +334,18 @@ Se preferisci un'interfaccia guidata nel terminale — senza aprire il browser e
 senza imparare i flag — usa la TUI:
 
 ```bash
-./noesis            # da un terminale: apre la TUI (equivale a ./noesis tui)
-./noesis tui        # esplicito
+./noesis                        # da un terminale: apre la TUI (= ./noesis tui)
+./noesis tui --theme light --lang en
+./noesis tui --line             # wizard a righe (senza Textual)
 ```
 
+Opzioni: `--theme auto|dark|light` (default `auto`, tasto `t` per cambiarlo al
+volo), `--lang it|en` (default italiano), `--line` per il wizard a righe,
+`--ascii` per terminali senza UTF-8.
+
 Cinque passi, gli stessi del wizard web: **file → pagine → lingue → motore →
-output**. Al posto delle miniature vedi il **numero fisico** e l'**etichetta
+output**. Il PDF si può **digitare o scegliere** dal selettore di file (doppio
+clic, si vedono solo le cartelle e i `.pdf`). Al posto delle miniature vedi il **numero fisico** e l'**etichetta
 stampata** (`/PageLabels`) della prima e dell'ultima pagina scelta, più le prime
 righe di testo: serve a non sbagliare selezione sui libri con numerazione
 diversa. Durante la traduzione vedi l'avanzamento pagina per pagina e il log;
@@ -359,9 +365,11 @@ restare attivo per la pagina in corso (poi si spegne da solo; il lavoro riparte
 dalla cache). Testata su Linux/macOS/WSL; su Windows nativo funziona in Windows
 Terminal ma non è un requisito di rilascio.
 
-Dipendenze: `requirements-tui.txt` (Textual), installate da `./noesis install`
-(`--no-tui` per un'installazione solo servizio). Non sono incluse
-nell'immagine Docker.
+Se Textual non è installato o il terminale è minimo (`TERM=dumb`, nessun TTY
+grafico) la TUI passa da sola al **wizard a righe**: stesse validazioni, stesso
+runner, stesso risultato. Dipendenze: `requirements-tui.txt` (Textual),
+installate da `./noesis install` (`--no-tui` per un'installazione solo
+servizio). Non sono incluse nell'immagine Docker.
 
 ## Gestione quotidiana (console `noesis`)
 
@@ -714,12 +722,12 @@ che usa la stessa pipeline e la stessa cache.
 
 ## Stato del progetto
 
-**Funzionante** (v0.2.0, allineata al desktop 0.2.0). Verificato end-to-end su
+**Funzionante** (v0.2.1, allineata al desktop 0.2.1). Verificato end-to-end su
 PDF reali del corpus: upload, anteprima, stima, coda, traduzione, download — da
 **server**, **TUI** e **CLI**; 10 casi e2e da 10 pagine per la TUI e 10 per il
 desktop, con controllo del PDF prodotto (pagine, testo tradotto, formato,
 lunghezza, italiano). Motore `pdf2zh_next 2.9.0` (BabelDOC 0.6.2) in `.venv2`.
-Test: **368 passed** (`pytest`, motore fittizio, nessuna rete). Disponibile anche
+Test: **387 passed** (`pytest`, motore fittizio, nessuna rete). Disponibile anche
 come **immagine Docker multi-arch**.
 
 ## Release
@@ -735,7 +743,7 @@ Le release sono **multipiattaforma**, sullo stesso schema dei desktop:
 | GHCR | linux/amd64 + linux/arm64 | `ghcr.io/vigliafg/noesis-pdf-cloner-service` |
 
 Il workflow `.github/workflows/release.yml` parte con un tag `v*`; `docker.yml`
-pubblica sulla stessa tag le immagini **multi-arch** (`v0.2.0`, `0.2.0`,
+pubblica sulla stessa tag le immagini **multi-arch** (`v0.2.1`, `0.2.1`,
 `0.2`, `latest`, `sha-<commit>`). Ogni release include `SHA256SUMS.txt`.
 
 > I binari standalone contengono **la CLI** (`noesis-cloner`): il server si
@@ -744,8 +752,8 @@ pubblica sulla stessa tag le immagini **multi-arch** (`v0.2.0`, `0.2.0`,
 > via Docker, dove è già incluso). È la stessa separazione del desktop.
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 ## Architettura

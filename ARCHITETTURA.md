@@ -354,6 +354,10 @@ vedono **numeri 1-based**; la conversione avviene in un solo punto.
 - **Dipendenze**: Textual (`requirements-tui.txt`) è **opzionale** e non entra
   nell'immagine Docker; l'installer la mette di default (`--no-tui` per
   disattivarla) e i bundle offline includono i wheel.
+- **Degrado controllato** (parità con le altre edizioni headless): se Textual
+  manca o il terminale è minimo (`TERM=dumb`, `--line`) la TUI usa un **wizard a
+  righe** con le stesse validazioni e lo stesso runner; tema `auto|dark|light`
+  (`--theme`, tasto `t`) e interfaccia it/en (`--lang`) sono parametri di avvio.
 
 ---
 

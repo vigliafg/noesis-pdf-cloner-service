@@ -1416,3 +1416,32 @@ def test_no_args_prints_help_without_terminal(monkeypatch, capsys):
 def test_tui_command_parses():
     args = noesis.build_parser().parse_args(["tui"])
     assert args.command == "tui"
+
+
+def test_cmd_tui_passes_theme_lang_line(tmp_path, monkeypatch):
+    monkeypatch.setattr(noesis, "DRY_RUN", True)
+    monkeypatch.setattr(noesis, "_interactive_tty", lambda: True)
+    monkeypatch.setattr(noesis, "ensure_uv", lambda ui: "/usr/bin/uv")
+    monkeypatch.setattr(
+        noesis, "ensure_service_venv",
+        lambda uv, ui, offline=None, with_tui=True: None,
+    )
+    monkeypatch.setattr(noesis, "ensure_data_dirs", lambda data_dir: None)
+    monkeypatch.setattr(noesis, "build_env", lambda data_dir, **kw: {})
+    ui = noesis.UI(quiet=True, color=False)
+    args = argparse.Namespace(
+        data_dir=str(tmp_path), theme="light", lang="en", line=True, ascii=True
+    )
+    assert noesis.cmd_tui(args, ui) == 0
+    message = " ".join(event["message"] for event in ui.events)
+    assert "--theme light" in message
+    assert "--lang en" in message
+    assert "--line" in message
+    assert "--ascii" in message
+
+
+def test_tui_parser_theme_lang_flags():
+    args = noesis.build_parser().parse_args(
+        ["tui", "--theme", "dark", "--lang", "en", "--line"]
+    )
+    assert (args.theme, args.lang, args.line) == ("dark", "en", True)

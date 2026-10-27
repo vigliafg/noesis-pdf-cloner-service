@@ -17,7 +17,7 @@ from .envfile import config_path, parse_env_file
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
-#: Preset "prestazioni" allineati al desktop ``noesis-pdf-cloner`` 0.2.0.
+#: Preset "prestazioni" allineati al desktop ``noesis-pdf-cloner`` 0.2.1.
 #:
 #: Nel desktop il preset compila anche i campi LLM (modello, reasoning, pool,
 #: prompt). Qui vengono usati solo come **default**: una variabile d'ambiente

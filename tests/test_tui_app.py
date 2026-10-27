@@ -223,3 +223,89 @@ def test_wizard_single_mode_produces_zip(tmp_path, settings, monkeypatch):
 
     asyncio.run(scenario())
     storage.close()
+
+
+def test_theme_toggle(tmp_path, settings):
+    storage = Storage(settings)
+
+    async def scenario() -> None:
+        app = NoesisTUI(settings, storage, dark=True)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert app.theme == "textual-dark"
+            await pilot.press("t")
+            await pilot.pause()
+            assert app.theme == "textual-light"
+            await pilot.press("t")
+            await pilot.pause()
+            assert app.theme == "textual-dark"
+
+    asyncio.run(scenario())
+    storage.close()
+
+
+def test_light_theme_and_ansi(tmp_path, settings):
+    storage = Storage(settings)
+
+    async def scenario() -> None:
+        app = NoesisTUI(settings, storage, dark=False, ansi=True)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert app.theme == "ansi-light"
+
+    asyncio.run(scenario())
+    storage.close()
+
+
+def test_file_picker_selects_pdf(tmp_path, settings):
+    storage = Storage(settings)
+    pdf = make_pdf(tmp_path / "doc.pdf", 2)
+
+    async def scenario() -> None:
+        app = NoesisTUI(settings, storage)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause(0.3)
+            wizard = app.screen
+            await pilot.click("#pdf-browse")
+            await pilot.pause(0.3)
+            picker = app.screen
+            assert type(picker).__name__ == "FilePicker"
+            picker._go(tmp_path)
+            await pilot.pause(0.2)
+            picker._accept(pdf)
+            await pilot.pause(0.3)
+            assert app.screen is wizard
+            assert wizard.query_one("#pdf-path").value == str(pdf)
+            assert wizard.page_count == 2
+
+    asyncio.run(scenario())
+    storage.close()
+
+
+def test_file_picker_ignores_non_pdf(tmp_path, settings):
+    storage = Storage(settings)
+    other = tmp_path / "note.txt"
+    other.write_text("x", encoding="utf-8")
+
+    async def scenario() -> None:
+        app = NoesisTUI(settings, storage)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause(0.3)
+            wizard = app.screen
+            await pilot.click("#pdf-browse")
+            await pilot.pause(0.3)
+            picker = app.screen
+            picker._accept(other)
+            await pilot.pause(0.2)
+            assert app.screen is picker  # resta aperto
+            picker.action_cancel()
+            await pilot.pause(0.2)
+            assert app.screen is wizard
+            assert wizard.query_one("#pdf-path").value == ""
+
+    asyncio.run(scenario())
+    storage.close()

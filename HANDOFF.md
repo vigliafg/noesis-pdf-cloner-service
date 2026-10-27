@@ -1,6 +1,6 @@
 # Handoff — noesis-pdf-cloner-service
 
-*Data: 2026-10-27 · versione 0.2.0, allineata al desktop 0.2.0 · Repository pubblico:
+*Data: 2026-10-27 · versione 0.2.1, allineata al desktop 0.2.1 · Repository pubblico:
 `git@github.com:vigliafg/noesis-pdf-cloner-service.git` (SSH, branch `main`).*
 
 Servizio **server + TUI + CLI headless** derivato da `noesis-pdf-cloner`: traduce
@@ -33,7 +33,11 @@ priorità e parallelismo a livello pagina.
   diagnostica. Client **in-process** della stessa pipeline (nessun server):
   condivide cache, `noesis.env` e SQLite; job `owner_id="tui"` con recovery
   dedicato; `server_is_up` blocca l'avvio se il servizio è attivo (ADR-019).
-  Dipendenza opzionale (`requirements-tui.txt`, non nel Docker).
+  Dipendenza opzionale (`requirements-tui.txt`, non nel Docker). Come le altre
+  edizioni headless: **selettore di file**, **tema** (`--theme`, tasto `t`),
+  **interfaccia it/en** (`--lang`) e **fallback a wizard a righe** per terminali
+  minimi o senza Textual (`--line`), con le stesse validazioni e lo stesso
+  runner.
 - **Libri interi a blocchi da 100** e **stima tempo/costo**
   (`POST /jobs/estimate`).
 - **Modello di costo LLM calibrato**: `costo_USD ≈ 6.8e-7 × chars_sorgente`
@@ -95,8 +99,8 @@ priorità e parallelismo a livello pagina.
 | Frontend | pagina `/` 200, meta popolato |
 | CLI | `--version`, `--list-engines`, `--list-pages`, end-to-end con motore fittizio |
 | Multi-processo | job accodato con `ROLE=api`, eseguito da `ROLE=worker` (coda su DB) |
-| TUI e2e reali | 10 casi × 10 pagine (6 PDF del corpus, google, cache fredda): **10/10 ok** in 51 min, output validati (pagine, testo, traduzione, formato, lunghezza, italiano) |
-| Desktop e2e reali (fix condiviso) | stessi 10 casi × 10 pagine: **10/10 ok** in 51 min |
+| TUI e2e reali | 10 casi × 10 pagine + 3 run × 5 pagine (0.2.1): tutti ok, output validati (pagine, testo, traduzione, formato, lunghezza, italiano) |
+| Desktop e2e reali (fix condiviso) | stessi casi (10×10 e 3×5): tutti ok |
 | Desktop dopo il fix condiviso | 558 test (24 skip), `test_engine_worker` 15/15 |
 
 ## 4. Limiti noti / TODO

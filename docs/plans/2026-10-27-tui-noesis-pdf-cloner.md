@@ -255,3 +255,21 @@ Scostamenti rispetto al piano, con motivo:
    `./noesis` senza argomenti apre la TUI **solo** su TTY; in pipe resta l'help.
 6. **Home minima** come deciso: tabella essenziale, nessun filtro; `Esc`/`q`
    non abbandonano un job in corso (prima si annulla).
+
+### Aggiornamento 0.2.1 — allineamento alle altre TUI della famiglia
+
+Dopo il rilascio 0.2.0 la TUI è stata portata alla pari con le due TUI già
+esistenti (`noesis-pdf-reader-lite-engine -gui`, `noesis-ebook-translator-engine -gui`):
+
+- **selettore di file** (`FilePicker` con `DirectoryTree` filtrato su `.pdf`)
+  accanto al campo digitabile;
+- **tema** `auto|dark|light` (`--theme`, tasto `t`; `ansi-*` per terminali
+  minimali);
+- **interfaccia it/en** (`--lang`), stringhe centralizzate in `app/tui/i18n.py`
+  (le stringhe del motore restano in italiano, condivise con CLI/server);
+- **fallback a wizard a righe** (`app/tui/fallback.py`) quando Textual manca o
+  il terminale è minimo: stesse validazioni, stesso runner, stesso output;
+- nuovo `probe_terminal()` (TTY, `TERM`, UTF-8, `NO_COLOR`, sfondo scuro) e
+  flag `--ascii`.
+
+Test: 387. e2e reali 3 run × 5 pagine (service e desktop sugli stessi PDF).

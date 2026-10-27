@@ -49,7 +49,9 @@ sessione grafica, apre il browser. L'installazione include anche le dipendenze
 della **TUI** (`requirements-tui.txt`, Textual): da un terminale,
 `./noesis` senza argomenti apre l'interfaccia interattiva. Per un'installazione
 solo servizio (senza TUI) usa `./install.sh --no-tui`; i wheel della TUI sono
-inclusi nei bundle offline creati da questa versione.
+inclusi nei bundle offline creati da questa versione. La TUI si adatta al
+terminale: `./noesis tui --theme light --lang en` per tema/lingua, `--line` per
+il wizard a righe (utile su terminali minimi o senza Textual).
 
 Durante l'installazione, se la chiave non è già presente, la console chiede la
 **chiave OpenRouter** (opzionale, serve solo al motore `llm`): input **nascosto**,

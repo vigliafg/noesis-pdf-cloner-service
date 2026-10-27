@@ -19,6 +19,7 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
     DataTable,
+    DirectoryTree,
     Footer,
     Header,
     Input,
@@ -42,6 +43,7 @@ from ..models import (
     RangeMode,
 )
 from ..pages import format_pages_label, parse_pages
+from .i18n import T
 from .jobs import (
     OWNER_ID,
     format_duration,
@@ -57,11 +59,11 @@ from .jobs import (
 from .runner import TuiJobRunner
 
 STEP_TITLES = (
-    "1/5 · File",
-    "2/5 · Pagine",
-    "3/5 · Lingue",
-    "4/5 · Motore",
-    "5/5 · Output",
+    T("wizard.step.file"),
+    T("wizard.step.pages"),
+    T("wizard.step.langs"),
+    T("wizard.step.engine"),
+    T("wizard.step.output"),
 )
 
 
@@ -69,27 +71,32 @@ class HomeScreen(Screen):
     """Elenco dei lavori fatti dalla TUI."""
 
     BINDINGS = [
-        Binding("n", "new_job", "Nuovo"),
-        Binding("o", "open_output", "Cartella"),
-        Binding("d", "doctor", "Diagnostica"),
-        Binding("w", "web", "Web"),
-        Binding("r", "refresh", "Aggiorna"),
-        Binding("q", "quit", "Esci"),
+        Binding("n", "new_job", T("home.new")),
+        Binding("o", "open_output", T("home.folder")),
+        Binding("d", "doctor", T("home.doctor")),
+        Binding("w", "web", T("home.web")),
+        Binding("r", "refresh", T("home.refresh")),
+        Binding("q", "quit", T("app.exit")),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="home"):
-            yield Static("Lavori", id="home-title")
-            yield Static(
-                "Premi n per un nuovo lavoro.", id="home-hint"
-            )
+            yield Static(T("home.title"), id="home-title")
+            yield Static(T("home.hint"), id="home-hint")
             yield DataTable(id="jobs", zebra_stripes=True, cursor_type="row")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#jobs", DataTable)
-        table.add_columns("Quando", "File", "Pagine", "Motore", "Stato", "Durata")
+        table.add_columns(
+            T("home.col.when"),
+            T("home.col.file"),
+            T("home.col.pages"),
+            T("home.col.engine"),
+            T("home.col.state"),
+            T("home.col.duration"),
+        )
         self._jobs: list[JobRecord] = []
         self._names: dict[str, str] = {}
         self.refresh_jobs()
@@ -115,9 +122,7 @@ class HomeScreen(Screen):
             )
         self._jobs = jobs
         self.query_one("#home-hint", Static).update(
-            "Nessun lavoro: premi n per iniziare."
-            if not jobs
-            else "n nuovo · o cartella output · d diagnostica · w web · q esci"
+            T("home.empty") if not jobs else T("home.actions")
         )
         if jobs:
             table.move_cursor(row=min(row, len(jobs) - 1))
@@ -142,15 +147,15 @@ class HomeScreen(Screen):
 
     def action_refresh(self) -> None:
         self.refresh_jobs()
-        self.notify("elenco aggiornato", timeout=2)
+        self.notify(T("home.refreshed"), timeout=2)
 
     def action_open_output(self) -> None:
         job = self._selected_job()
         if job is None:
-            self.notify("nessun lavoro selezionato", severity="warning")
+            self.notify(T("home.no_selection"), severity="warning")
             return
         if not job.artifact_path or not Path(job.artifact_path).is_file():
-            self.notify("output non più disponibile", severity="warning")
+            self.notify(T("home.output_gone"), severity="warning")
             return
         self._open_path(Path(job.artifact_path).parent)
 
@@ -163,11 +168,7 @@ class HomeScreen(Screen):
     def action_web(self) -> None:
         settings = self.app.settings
         if not server_is_up(settings):
-            self.notify(
-                "server non attivo: avvialo con ./noesis start",
-                severity="warning",
-                timeout=6,
-            )
+            self.notify(T("home.server_down"), severity="warning", timeout=6)
             return
         webbrowser.open(web_url(settings))
 
@@ -178,15 +179,122 @@ class HomeScreen(Screen):
         try:
             webbrowser.open(path.as_uri())
         except Exception:  # noqa: BLE001 - best effort
-            self.notify(f"non riesco ad aprire {path}", severity="warning")
+            self.notify(T("home.open_failed", path=path), severity="warning")
+
+
+class _PdfTree(DirectoryTree):
+    """DirectoryTree che mostra cartelle e solo file ``.pdf``."""
+
+    def __init__(self, path: Path, *, hidden: bool = False, **kwargs) -> None:
+        self._hidden = hidden
+        super().__init__(path, **kwargs)
+
+    def set_hidden(self, hidden: bool) -> None:
+        self._hidden = hidden
+        self.reload()
+
+    def filter_paths(self, paths):
+        visible = []
+        for path in paths:
+            try:
+                is_dir = path.is_dir()
+            except OSError:
+                continue
+            if path.name.startswith(".") and not self._hidden:
+                continue
+            if is_dir or path.suffix.lower() == ".pdf":
+                visible.append(path)
+        return visible
+
+
+class FilePicker(ModalScreen):
+    """Selettore di file PDF (ritorna ``Path`` oppure ``None``)."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Esc", show=False),
+        Binding("backspace", "up", "up", show=False),
+    ]
+
+    def __init__(self, start: Path | None = None, *, hidden: bool = False) -> None:
+        super().__init__()
+        candidate = Path(start or Path.cwd()).expanduser()
+        self._root = candidate if candidate.is_dir() else candidate.parent
+        if not self._root.is_dir():
+            self._root = Path.home()
+        self._hidden = hidden
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="picker"):
+            yield Static(T("picker.title"), id="picker-title")
+            yield Input(value=str(self._root), id="picker-path")
+            yield _PdfTree(self._root, hidden=self._hidden, id="picker-tree")
+            with Horizontal(id="picker-buttons"):
+                yield Button(T("picker.up"), id="picker-up")
+                yield Button(T("picker.home"), id="picker-home")
+                yield Button(T("picker.cwd"), id="picker-cwd")
+                yield Button(T("picker.hidden"), id="picker-hidden")
+                yield Button(T("picker.cancel"), id="picker-cancel")
+            yield Static(T("picker.hint"), id="picker-hint", classes="hint")
+
+    def _go(self, path: Path) -> None:
+        path = Path(path).expanduser()
+        if not path.is_dir():
+            return
+        self._root = path
+        self.query_one("#picker-path", Input).value = str(path)
+        self.query_one("#picker-tree", _PdfTree).path = path
+
+    def _accept(self, path: Path) -> None:
+        if path.is_dir():
+            self._go(path)
+            return
+        if path.is_file() and path.suffix.lower() == ".pdf":
+            self.dismiss(path)
+            return
+        self.notify(T("picker.not_a_pdf"), severity="warning")
+
+    def on_directory_tree_directory_selected(
+        self, event: DirectoryTree.DirectorySelected
+    ) -> None:
+        self._go(event.path)
+
+    def on_directory_tree_file_selected(
+        self, event: DirectoryTree.FileSelected
+    ) -> None:
+        self._accept(event.path)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "picker-path":
+            raw = event.value.strip() or str(self._root)
+            self._accept(Path(raw))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button = event.button.id
+        if button == "picker-cancel":
+            self.dismiss(None)
+        elif button == "picker-up":
+            self._go(self._root.parent)
+        elif button == "picker-home":
+            self._go(Path.home())
+        elif button == "picker-cwd":
+            self._go(Path.cwd())
+        elif button == "picker-hidden":
+            self._hidden = not self._hidden
+            self.query_one("#picker-tree", _PdfTree).set_hidden(self._hidden)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_up(self) -> None:
+        self._go(self._root.parent)
 
 
 class WizardScreen(Screen):
     """Nuovo lavoro: file → pagine → lingue → motore → output."""
 
     BINDINGS = [
-        Binding("escape", "cancel", "Annulla"),
-        Binding("ctrl+enter", "next", "Avanti"),
+        Binding("escape", "cancel", T("wizard.btn.cancel")),
+        Binding("ctrl+enter", "next", T("wizard.btn.next")),
     ]
 
     def __init__(self) -> None:
@@ -205,26 +313,31 @@ class WizardScreen(Screen):
             yield Static(STEP_TITLES[0], id="wizard-title")
 
             with Vertical(id="step-0", classes="step"):
-                yield Label("Percorso del PDF")
+                yield Label(T("wizard.file.label"))
                 yield Input(
-                    placeholder="es. pdfs/ha22.pdf (invio per confermare)",
+                    placeholder=T("wizard.file.placeholder"),
                     id="pdf-path",
                 )
+                yield Button(T("wizard.file.browse"), id="pdf-browse")
                 yield Static("", id="pdf-info", classes="hint")
 
             with Vertical(id="step-1", classes="step"):
-                yield Label("Pagine da tradurre")
-                yield Input(value="all", id="pages")
+                yield Label(T("wizard.pages.label"))
+                yield Input(
+                    value="all",
+                    placeholder=T("wizard.pages.placeholder"),
+                    id="pages",
+                )
                 yield Static("", id="pages-info", classes="hint")
 
             with Vertical(id="step-2", classes="step"):
-                yield Label("Lingua di partenza")
+                yield Label(T("wizard.src.label"))
                 yield Select(languages, value="auto", allow_blank=False, id="src")
-                yield Label("Lingua di arrivo")
+                yield Label(T("wizard.dst.label"))
                 yield Select(destinations, value="it", allow_blank=False, id="dst")
 
             with Vertical(id="step-3", classes="step"):
-                yield Label("Motore")
+                yield Label(T("wizard.engine.label"))
                 yield RadioSet(
                     *[
                         RadioButton(
@@ -237,34 +350,31 @@ class WizardScreen(Screen):
                     id="engine",
                 )
                 with Vertical(id="llm-box"):
-                    yield Label("Chiave OpenRouter (solo per questo lavoro)")
+                    yield Label(T("wizard.key.label"))
                     yield Input(
-                        placeholder="sk-or-… (vuoto = variabile d'ambiente)",
+                        placeholder=T("wizard.key.placeholder"),
                         password=True,
                         id="llm-key",
                     )
-                    yield Static(
-                        "La chiave non viene salvata: vale solo per il job.",
-                        classes="hint",
-                    )
+                    yield Static(T("wizard.key.hint"), classes="hint")
 
             with Vertical(id="step-4", classes="step"):
-                yield Label("Nome del file di uscita (senza estensione)")
-                yield Input(placeholder="automatico: <nome>_<lingua>", id="out-name")
-                yield Label("Cartella di uscita")
+                yield Label(T("wizard.outname.label"))
+                yield Input(placeholder=T("wizard.outname.placeholder"), id="out-name")
+                yield Label(T("wizard.outdir.label"))
                 yield Input(value=str(Path.cwd()), id="out-dir")
-                yield Label("Formato")
+                yield Label(T("wizard.format.label"))
                 yield RadioSet(
-                    RadioButton("Un unico PDF", id="rm-merged", value=True),
-                    RadioButton("ZIP con le pagine singole", id="rm-single"),
+                    RadioButton(T("wizard.format.merged"), id="rm-merged", value=True),
+                    RadioButton(T("wizard.format.single"), id="rm-single"),
                     id="range-mode",
                 )
                 yield Static("", id="summary", classes="hint")
 
             with Horizontal(id="wizard-nav"):
-                yield Button("Annulla", id="wiz-cancel")
-                yield Button("Indietro", id="wiz-back")
-                yield Button("Avanti", id="wiz-next", variant="primary")
+                yield Button(T("wizard.btn.cancel"), id="wiz-cancel")
+                yield Button(T("wizard.btn.back"), id="wiz-back")
+                yield Button(T("wizard.btn.next"), id="wiz-next", variant="primary")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -277,7 +387,8 @@ class WizardScreen(Screen):
         self.query_one("#wizard-title", Static).update(STEP_TITLES[step])
         self.query_one("#wiz-back", Button).disabled = step == 0
         self.query_one("#wiz-next", Button).label = (
-            "Avvia la traduzione" if step == len(STEP_TITLES) - 1 else "Avanti"
+            T("wizard.btn.start") if step == len(STEP_TITLES) - 1
+            else T("wizard.btn.next")
         )
         if step == len(STEP_TITLES) - 1:
             self._refresh_summary()
@@ -318,10 +429,23 @@ class WizardScreen(Screen):
             self._show_step(max(0, self.step - 1))
         elif event.button.id == "wiz-next":
             self.action_next()
+        elif event.button.id == "pdf-browse":
+            self._pick_file()
 
     # ── passi ────────────────────────────────────────────────────────────
     def action_cancel(self) -> None:
         self.app.pop_screen()
+
+    def _pick_file(self) -> None:
+        raw = self.query_one("#pdf-path", Input).value.strip()
+        start = Path(raw).expanduser() if raw else Path.cwd()
+        self.app.push_screen(FilePicker(start), self._on_picked_file)
+
+    def _on_picked_file(self, path: Path | None) -> None:
+        if path is None:
+            return
+        self.query_one("#pdf-path", Input).value = str(path)
+        self._validate_file()
 
     def action_next(self) -> None:
         if self.step == 0:
@@ -344,24 +468,29 @@ class WizardScreen(Screen):
     def _validate_file(self) -> bool:
         raw = self.query_one("#pdf-path", Input).value.strip()
         if not raw:
-            self.notify("indica il percorso di un PDF", severity="error")
+            self.notify(T("wizard.err.no_file"), severity="error")
             return False
         pdf = Path(raw).expanduser()
         if not pdf.is_file():
-            self.notify(f"file non trovato: {pdf}", severity="error")
+            self.notify(T("wizard.err.not_found", path=pdf), severity="error")
             return False
         if pdf.suffix.lower() != ".pdf":
-            self.notify("il file non è un PDF", severity="error")
+            self.notify(T("wizard.err.not_pdf"), severity="error")
             return False
         try:
             count = CloneEngine.page_count(pdf)
         except Exception as exc:  # noqa: BLE001
-            self.notify(f"PDF illeggibile: {exc}", severity="error")
+            self.notify(T("wizard.err.unreadable", error=exc), severity="error")
             return False
         self.pdf = pdf
         self.page_count = count
         self.query_one("#pdf-info", Static).update(
-            f"{pdf.name} · {count} pagine · {pdf.stat().st_size / 1_048_576:.1f} MB"
+            T(
+                "wizard.info.file",
+                name=pdf.name,
+                pages=count,
+                size=pdf.stat().st_size / 1_048_576,
+            )
         )
         return True
 
@@ -369,10 +498,12 @@ class WizardScreen(Screen):
         try:
             pages = parse_pages(self.query_one("#pages", Input).value, self.page_count)
         except ValueError as exc:
-            return f"specifica non valida: {exc}"
+            return T("wizard.err.bad_spec", error=exc)
         if len(pages) > self.app.settings.max_pages_total:
-            return f"troppe pagine (max {self.app.settings.max_pages_total})"
-        lines = [f"{len(pages)} pagine · {format_pages_label(pages)}"]
+            return T("wizard.err.too_many", max=self.app.settings.max_pages_total)
+        lines = [
+            T("wizard.info.pages", count=len(pages), label=format_pages_label(pages))
+        ]
         if preview and self.pdf is not None:
             lines += preview_lines(preview_selection(self.pdf, pages))
         return "\n".join(lines)
@@ -381,11 +512,11 @@ class WizardScreen(Screen):
         try:
             pages = parse_pages(self.query_one("#pages", Input).value, self.page_count)
         except ValueError as exc:
-            self.notify(str(exc), severity="error")
+            self.notify(T("wizard.err.bad_spec", error=exc), severity="error")
             return False
         if len(pages) > self.app.settings.max_pages_total:
             self.notify(
-                f"troppe pagine (max {self.app.settings.max_pages_total})",
+                T("wizard.err.too_many", max=self.app.settings.max_pages_total),
                 severity="error",
             )
             return False
@@ -395,7 +526,7 @@ class WizardScreen(Screen):
 
     def _validate_languages(self) -> bool:
         if self.query_one("#dst", Select).value in (Select.BLANK, None, "auto"):
-            self.notify("scegli la lingua di arrivo", severity="error")
+            self.notify(T("wizard.err.dst"), severity="error")
             return False
         return True
 
@@ -410,10 +541,7 @@ class WizardScreen(Screen):
             return True
         if self._llm_key() or self.app.settings.openrouter_api_key:
             return True
-        self.notify(
-            "il motore LLM richiede la chiave OpenRouter (o OPENROUTER_API_KEY)",
-            severity="error",
-        )
+        self.notify(T("wizard.err.llm_key"), severity="error")
         return False
 
     def _llm_key(self) -> str:
@@ -433,23 +561,24 @@ class WizardScreen(Screen):
             out_dir = Path(".")
         name = out_name or suggest_output_name(pdf, dst)
         self.query_one("#summary", Static).update(
-            f"{len(self.pages) or self.page_count} pagine · motore {self._engine()} · "
-            f"{language_name(src)} → {language_name(dst)}\n"
-            f"output: {out_dir / name}"
+            T(
+                "wizard.summary.pages",
+                count=len(self.pages) or self.page_count,
+                engine=self._engine(),
+                src=language_name(src),
+                dst=language_name(dst),
+            )
+            + "\n"
+            + T("wizard.summary.output", path=out_dir / name)
         )
 
     # ── avvio ────────────────────────────────────────────────────────────
     def _submit(self) -> None:
         if self.pdf is None:
-            self.notify("scegli prima un PDF", severity="error")
+            self.notify(T("wizard.err.no_pdf"), severity="error")
             return
         if self.app.settings.require_terms_acceptance:
-            self.notify(
-                "i Termini d'uso sono richiesti: usa l'interfaccia web "
-                "(./noesis start, poi w dalla Home)",
-                severity="error",
-                timeout=8,
-            )
+            self.notify(T("wizard.err.terms"), severity="error", timeout=8)
             return
         if not self._refresh_ready():
             return
@@ -477,10 +606,10 @@ class WizardScreen(Screen):
         try:
             parse_pages(self.query_one("#pages", Input).value, self.page_count)
         except ValueError as exc:
-            self.notify(str(exc), severity="error")
+            self.notify(T("wizard.err.bad_spec", error=exc), severity="error")
             return False
         if not self.query_one("#out-dir", Input).value.strip():
-            self.notify("indica la cartella di uscita", severity="error")
+            self.notify(T("wizard.err.outdir"), severity="error")
             return False
         return True
 
@@ -500,11 +629,7 @@ class WizardScreen(Screen):
     ) -> None:
         settings = self.app.settings
         if server_is_up(settings):
-            self.app.call_from_thread(
-                self._failed,
-                "il server è attivo sulla stessa cartella dati: usa l'interfaccia "
-                "web (w) oppure fermalo con ./noesis stop",
-            )
+            self.app.call_from_thread(self._failed, T("wizard.err.server_busy"))
             return
         try:
             engine = build_engine(settings, api_key=key or None)
@@ -553,10 +678,10 @@ class RunScreen(Screen):
     """Esecuzione del job: avanzamento, log e annullamento."""
 
     BINDINGS = [
-        Binding("escape", "cancel", "Annulla"),
-        Binding("o", "open_out", "Cartella"),
-        Binding("n", "new_job", "Nuovo"),
-        Binding("q", "home", "Home"),
+        Binding("escape", "cancel", T("run.btn.cancel")),
+        Binding("o", "open_out", T("run.menu.open")),
+        Binding("n", "new_job", T("run.menu.new")),
+        Binding("q", "home", T("run.menu.home")),
     ]
 
     def __init__(
@@ -584,20 +709,29 @@ class RunScreen(Screen):
         with Vertical(id="run"):
             yield Static("", id="run-title")
             yield ProgressBar(total=self.job.pages_total or 1, show_percentage=True, id="bar")
-            yield Static("preparazione…", id="run-status")
+            yield Static(T("run.preparing"), id="run-status")
             yield Static("", id="run-grid")
             yield RichLog(id="log", markup=True, max_lines=400)
             with Horizontal(id="run-nav"):
-                yield Button("Annulla", id="btn-cancel", variant="error")
-                yield Button("Apri cartella", id="btn-open", disabled=True)
-                yield Button("Nuovo lavoro", id="btn-new", variant="primary")
+                yield Button(T("run.btn.cancel"), id="btn-cancel", variant="error")
+                yield Button(T("run.btn.open"), id="btn-open", disabled=True)
+                yield Button(T("run.btn.new"), id="btn-new", variant="primary")
         yield Footer()
 
     def on_mount(self) -> None:
-        cache_note = f" · {self.cached} in cache" if self.cached else ""
+        cache_note = (
+            T("run.title.cache", count=self.cached) if self.cached else ""
+        )
         self.query_one("#run-title", Static).update(
-            f"{self.job.output_name} · {self.job.pages_total} pagine{cache_note} · "
-            f"{self.job.src_lang} → {self.job.dst_lang} · motore {self.job.engine}"
+            T(
+                "run.title",
+                name=self.job.output_name,
+                pages=self.job.pages_total,
+                cache=cache_note,
+                src=self.job.src_lang,
+                dst=self.job.dst_lang,
+                engine=self.job.engine,
+            )
         )
         self.runner = TuiJobRunner(
             storage=self.app.storage,
@@ -638,8 +772,15 @@ class RunScreen(Screen):
         self.query_one("#bar", ProgressBar).update(total=max(total, 1), progress=done)
         failures = sum(1 for value in self._marks.values() if not value)
         self.query_one("#run-status", Static).update(
-            f"{done}/{total} pagine · errori {failures} · "
-            f"trascorsi {format_duration(int((time.monotonic() - self._started) * 1000))}"
+            T(
+                "run.progress",
+                done=done,
+                total=total,
+                failed=failures,
+                elapsed=format_duration(
+                    int((time.monotonic() - self._started) * 1000)
+                ),
+            )
         )
         self._render_grid()
 
@@ -655,9 +796,7 @@ class RunScreen(Screen):
             for index in range(0, len(symbols), 28)
         ]
         self.query_one("#run-grid", Static).update(
-            "\n".join(lines) + "\n[dim]✓ tradotta · ✗ errore · · in attesa[/dim]"
-            if lines
-            else ""
+            "\n".join(lines) + f"\n[dim]{T('run.legend')}[/dim]" if lines else ""
         )
 
     def _tick(self) -> None:
@@ -666,36 +805,43 @@ class RunScreen(Screen):
         elapsed = int((time.monotonic() - self._started) * 1000)
         current = self._current_status()
         self.query_one("#run-status", Static).update(
-            f"{current} · trascorsi {format_duration(elapsed)}"
+            f"{current} · {format_duration(elapsed)}"
         )
 
     def _current_status(self) -> str:
         done = len(self._marks)
         failures = sum(1 for value in self._marks.values() if not value)
         return (
-            f"{done}/{self.job.pages_total} pagine · errori {failures}"
+            T(
+                "run.progress",
+                done=done,
+                total=self.job.pages_total,
+                failed=failures,
+                elapsed="—",
+            ).replace(" · —", "")
             if self.job.pages_total
-            else "in corso"
+            else T("run.preparing")
         )
 
     def _on_done(self, result, error: str | None) -> None:
         self._finished = True
         self.query_one("#btn-cancel", Button).disabled = True
         if error is not None or result is None:
-            self.query_one("#run-status", Static).update(f"errore: {error}")
-            self.notify(f"job fallito: {error}", severity="error", timeout=10)
+            text = error or T("doctor.error")
+            self.query_one("#run-status", Static).update(T("run.error", error=text))
+            self.notify(T("run.msg.failed", error=text), severity="error", timeout=10)
             return
         if result.cancelled:
             self.query_one("#run-status", Static).update(
-                f"annullato · {result.pages_done} pagine tradotte (restano in cache)"
+                T("run.cancelled", done=result.pages_done)
             )
             return
         if not result.artifact_path:
             self.query_one("#run-status", Static).update(
-                f"nessun output: {result.error or 'errore sconosciuto'}"
+                T("run.no_output", error=result.error or T("doctor.error"))
             )
             return
-        self.query_one("#run-status", Static).update("copio l'output…")
+        self.query_one("#run-status", Static).update(T("run.copying"))
         self._finalize(result)
 
     @work(thread=True)
@@ -714,16 +860,18 @@ class RunScreen(Screen):
         self.out_path = dest
         self.query_one("#btn-open", Button).disabled = dest is None
         failures = result.pages_failed
-        text = (
-            f"completato · {result.pages_done}/{result.pages_total} pagine"
-            + (f" · {failures} errori" if failures else "")
-            + f" · {format_duration(result.duration_ms)}"
+        text = T(
+            "run.completed",
+            done=result.pages_done,
+            total=result.pages_total,
+            errors=T("run.completed.errors", count=failures) if failures else "",
+            duration=format_duration(result.duration_ms),
         )
         if dest is not None:
             text += f"\n{self.out_dir / dest.name}"
         self.query_one("#run-status", Static).update(text)
         self.notify(
-            f"file pronto: {dest}" if dest else "job completato",
+            T("run.msg.ready", path=dest) if dest else T("run.msg.done"),
             timeout=8,
         )
 
@@ -734,37 +882,33 @@ class RunScreen(Screen):
         self._cancelling = True
         self.runner.cancel()
         self.query_one("#btn-cancel", Button).disabled = True
-        self.query_one("#run-status", Static).update("annullamento in corso…")
-        self.query_one("#log", RichLog).write("[yellow]annullamento richiesto[/yellow]")
+        self.query_one("#run-status", Static).update(T("run.cancelling"))
+        self.query_one("#log", RichLog).write(
+            f"[yellow]{T('run.log.cancel')}[/yellow]"
+        )
 
     def action_open_out(self) -> None:
         target = self.out_path or (
             Path(self.job.artifact_path) if self.job.artifact_path else None
         )
         if target is None or not target.exists():
-            self.notify("nessun output da aprire", severity="warning")
+            self.notify(T("run.msg.nothing"), severity="warning")
             return
         folder = target if target.is_dir() else target.parent
         try:
             webbrowser.open(folder.as_uri())
         except Exception:  # noqa: BLE001 - best effort
-            self.notify(f"non riesco ad aprire {folder}", severity="warning")
+            self.notify(T("home.open_failed", path=folder), severity="warning")
 
     def action_new_job(self) -> None:
         if self.runner is not None and self.runner.running:
-            self.notify(
-                "job in corso: Esc per annullarlo prima di iniziarne un altro",
-                severity="warning",
-            )
+            self.notify(T("run.msg.busy_new"), severity="warning")
             return
         self.app.switch_screen(WizardScreen())
 
     def action_home(self) -> None:
         if self.runner is not None and self.runner.running:
-            self.notify(
-                "job in corso: Esc per annullarlo, poi q per uscire",
-                severity="warning",
-            )
+            self.notify(T("run.msg.busy"), severity="warning")
             return
         self.app.pop_screen()
 
@@ -780,13 +924,13 @@ class RunScreen(Screen):
 class DoctorScreen(ModalScreen):
     """Diagnostica runtime (motore, chiave, modello, ambiente)."""
 
-    BINDINGS = [Binding("escape", "close", "Chiudi")]
+    BINDINGS = [Binding("escape", "close", T("doctor.close"))]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="doctor"):
-            yield Static("Diagnostica", id="doctor-title")
-            yield Static("eseguo i controlli…", id="doctor-body")
-            yield Button("Chiudi", id="doctor-close", variant="primary")
+            yield Static(T("doctor.title"), id="doctor-title")
+            yield Static(T("doctor.running"), id="doctor-body")
+            yield Button(T("doctor.close"), id="doctor-close", variant="primary")
 
     def on_mount(self) -> None:
         self._collect()
@@ -799,7 +943,8 @@ class DoctorScreen(ModalScreen):
             rows = doctor_rows(self.app.settings)
         except Exception as exc:  # noqa: BLE001
             self.app.call_from_thread(
-                self._show, [("XX", "errore", str(exc) or exc.__class__.__name__)]
+                self._show,
+                [("XX", T("doctor.error"), str(exc) or exc.__class__.__name__)],
             )
             return
         self.app.call_from_thread(

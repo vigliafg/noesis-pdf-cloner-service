@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "noesis-pdf-cloner-service"
-version = "0.2.0"
+version = "0.2.1"
 description = "Server + CLI headless della pipeline noesis-pdf-cloner (traduzione PDF con layout preservato)"
 readme = "README.md"
 requires-python = ">=3.10"

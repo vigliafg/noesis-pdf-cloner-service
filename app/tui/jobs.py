@@ -21,6 +21,7 @@ from ..engine import CloneEngine
 from ..models import JobRecord, JobState, LANGUAGES, utcnow
 from ..security import sanitize_stem
 from ..storage import Storage
+from .i18n import T
 
 log = logging.getLogger("noesis.tui")
 
@@ -56,8 +57,12 @@ class PagePreview:
     @property
     def caption(self) -> str:
         if self.label and self.label != str(self.number):
-            return f"fisica {self.number} · «{self.label}»"
-        return f"fisica {self.number}"
+            return T(
+                "wizard.preview.physical_label",
+                number=self.number,
+                label=self.label,
+            )
+        return T("wizard.preview.physical", number=self.number)
 
 
 def state_label(state: JobState | str) -> str:
@@ -153,7 +158,10 @@ def preview_lines(previews: list[PagePreview]) -> list[str]:
     lines: list[str] = []
     for preview in previews:
         lines.append(preview.caption)
-        lines.append(f"  {preview.text}" if preview.text else "  (nessun testo estratto)")
+        lines.append(
+            f"  {preview.text}" if preview.text
+            else f"  {T('wizard.preview.none')}"
+        )
     return lines
 
 

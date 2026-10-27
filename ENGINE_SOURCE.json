@@ -1,8 +1,8 @@
 {
   "desktop_repo": "/home/vigliafg/Documenti/GitHub/noesis-pdf-cloner",
-  "desktop_version": "0.2.0",
-  "desktop_commit": "80acf77",
-  "synced_at": "2026-10-27T20:00:00+00:00",
+  "desktop_version": "0.2.1",
+  "desktop_commit": "4c19e5d",
+  "synced_at": "2026-10-27T21:00:00+00:00",
   "shared": [
     "clone_engine.py → app/engine.py (adattato: stato per documento, cache versionata, worker)",
     "gtranslate_cli.py → app/gtranslate_cli.py",
